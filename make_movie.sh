@@ -1,40 +1,86 @@
 #!/bin/bash
 
 # make_movie.sh - Create a karaoke video from a KAI file
-# Usage: ./make_movie.sh input.kai [output.mp4]
+# Usage: ./make_movie.sh [OPTIONS] input.kai [output.mp4]
 
 set -e
 
-if [ $# -eq 0 ]; then
-    echo "Usage: $0 INPUT.kai [OUTPUT.mp4]"
+# Initialize variables
+INCLUDE_VOCALS=false
+KAI_FILE=""
+OUTPUT=""
+
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 [OPTIONS] INPUT.kai [OUTPUT.mp4]"
     echo ""
     echo "Create a karaoke video from a KAI file"
+    echo ""
+    echo "Options:"
+    echo "  --with-vocals      Include vocals in the audio mix (default: instrumental only)"
     echo ""
     echo "Features:"
     echo "  - Displays synchronized lyrics from KAI file"
     echo "  - Skips lyrics marked with disabled=true"
     echo "  - Shows progress bars during instrumental gaps (5+ seconds)"
     echo "  - Supports both 'lines' and 'lyrics' JSON fields"
-    echo "  - Uses instrumental mix (music.mp3 if available, or combines stems)"
+    echo "  - Uses instrumental mix by default (music.mp3 or combines stems)"
+    echo "  - Optional vocal inclusion with --with-vocals flag"
     echo ""
     echo "Arguments:"
     echo "  INPUT.kai    Input KAI file (required)"
     echo "  OUTPUT.mp4   Output video file (optional, defaults to INPUT.mp4)"
     echo ""
     echo "Examples:"
-    echo "  $0 song.kai                    # Creates song.mp4"
-    echo "  $0 song.kai karaoke.mp4        # Custom output name"
-    echo "  $0 \"My Song.kai\" \"My Video.mp4\"  # Files with spaces"
+    echo "  $0 song.kai                          # Creates song.mp4 (instrumental)"
+    echo "  $0 --with-vocals song.kai            # Creates song.mp4 (with vocals)"
+    echo "  $0 song.kai karaoke.mp4              # Custom output name (instrumental)"
+    echo "  $0 --with-vocals song.kai full.mp4   # Custom output with vocals"
+    echo "  $0 \"My Song.kai\" \"My Video.mp4\"      # Files with spaces"
     echo ""
     echo "Requirements:"
     echo "  - ffmpeg (for video generation)"
     echo "  - python3 (for JSON processing)"
     echo "  - unzip (for KAI extraction)"
     exit 1
+}
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --with-vocals)
+            INCLUDE_VOCALS=true
+            shift
+            ;;
+        --help|-h)
+            show_usage
+            ;;
+        *)
+            if [ -z "$KAI_FILE" ]; then
+                KAI_FILE="$1"
+            elif [ -z "$OUTPUT" ]; then
+                OUTPUT="$1"
+            else
+                echo "Error: Too many arguments"
+                echo ""
+                show_usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Check if KAI file was provided
+if [ -z "$KAI_FILE" ]; then
+    echo "Error: INPUT.kai is required"
+    echo ""
+    show_usage
 fi
 
-KAI_FILE="$1"
-OUTPUT="${2:-${KAI_FILE%.kai}.mp4}"
+# Set default output if not provided
+if [ -z "$OUTPUT" ]; then
+    OUTPUT="${KAI_FILE%.kai}.mp4"
+fi
 
 if [ ! -f "$KAI_FILE" ]; then
     echo "Error: KAI file '$KAI_FILE' not found"
@@ -62,15 +108,35 @@ echo "Title: $TITLE"
 echo "Artist: $ARTIST"
 echo "Duration: ${DURATION}s"
 
-# Check if music.mp3 exists, otherwise create instrumental mix from stems
-if [ -f "$TEMP_DIR/music.mp3" ]; then
-    echo "Using existing music.mp3..."
-    cp "$TEMP_DIR/music.mp3" "$TEMP_DIR/instrumental.wav"
+# Create audio mix based on vocals flag
+if [ "$INCLUDE_VOCALS" = true ]; then
+    echo "Creating full mix with vocals..."
+    if [ -f "$TEMP_DIR/music.mp3" ] && [ -f "$TEMP_DIR/vocals.mp3" ]; then
+        # Mix music + vocals
+        ffmpeg -y -i "$TEMP_DIR/music.mp3" -i "$TEMP_DIR/vocals.mp3" \
+            -filter_complex "[0:a][1:a]amix=inputs=2:duration=longest:dropout_transition=2" \
+            "$TEMP_DIR/audio.wav"
+    elif [ -f "$TEMP_DIR/vocals.mp3" ]; then
+        # Mix all stems including vocals
+        ffmpeg -y -i "$TEMP_DIR/drums.mp3" -i "$TEMP_DIR/bass.mp3" -i "$TEMP_DIR/other.mp3" -i "$TEMP_DIR/vocals.mp3" \
+            -filter_complex "[0:a][1:a][2:a][3:a]amix=inputs=4:duration=longest:dropout_transition=2" \
+            "$TEMP_DIR/audio.wav"
+    else
+        echo "Error: vocals.mp3 not found in KAI file"
+        exit 1
+    fi
 else
-    echo "Creating instrumental mix from stems..."
-    ffmpeg -y -i "$TEMP_DIR/drums.mp3" -i "$TEMP_DIR/bass.mp3" -i "$TEMP_DIR/other.mp3" \
-        -filter_complex "[0:a][1:a][2:a]amix=inputs=3:duration=longest:dropout_transition=2" \
-        "$TEMP_DIR/instrumental.wav"
+    echo "Creating instrumental mix..."
+    # Check if music.mp3 exists, otherwise create instrumental mix from stems
+    if [ -f "$TEMP_DIR/music.mp3" ]; then
+        echo "Using existing music.mp3..."
+        cp "$TEMP_DIR/music.mp3" "$TEMP_DIR/audio.wav"
+    else
+        echo "Creating instrumental mix from stems..."
+        ffmpeg -y -i "$TEMP_DIR/drums.mp3" -i "$TEMP_DIR/bass.mp3" -i "$TEMP_DIR/other.mp3" \
+            -filter_complex "[0:a][1:a][2:a]amix=inputs=3:duration=longest:dropout_transition=2" \
+            "$TEMP_DIR/audio.wav"
+    fi
 fi
 
 # Generate drawtext filters for each lyric line
@@ -187,7 +253,7 @@ ffmpeg -y -f lavfi -i "color=c=0x1a1a2e:size=1920x1080:duration=$DURATION" \
 # Combine background, audio, and lyric overlays
 echo "Creating final karaoke video..."
 LYRIC_FILTERS=$(cat "$TEMP_DIR/lyric_filters.txt" | tr '\n' ' ')
-ffmpeg -y -i "$TEMP_DIR/background.mp4" -i "$TEMP_DIR/instrumental.wav" \
+ffmpeg -y -i "$TEMP_DIR/background.mp4" -i "$TEMP_DIR/audio.wav" \
     -c:v libx264 -c:a aac -b:a 192k \
     -vf "drawtext=text='$TITLE':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=48:fontcolor=white:x=(w-text_w)/2:y=h/3:enable='between(t,0,5)',
          drawtext=text='by $ARTIST':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:fontsize=32:fontcolor=gray:x=(w-text_w)/2:y=h/3+80:enable='between(t,0,5)',
