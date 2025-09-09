@@ -133,11 +133,17 @@ export OPENAI_API_KEY="your-key"
 ### 4. Create Karaoke Video
 
 ```bash
-# Generate MP4 karaoke video with synchronized lyrics
+# Generate MP4 karaoke video with synchronized lyrics (instrumental only)
 ./make_movie.sh song.kai
+
+# Include vocals in the video
+./make_movie.sh --with-vocals song.kai
 
 # Custom output name
 ./make_movie.sh song.kai my_video.mp4
+
+# Custom output with vocals
+./make_movie.sh --with-vocals song.kai full_version.mp4
 ```
 
 ## Script Options
@@ -163,8 +169,11 @@ export OPENAI_API_KEY="your-key"
 export OPENAI_API_KEY="your-key"
 ./kai_pack.sh --fix-lyrics --whisper-model large song.mp3
 
-# 2. Create karaoke video
+# 2. Create karaoke video (instrumental)
 ./make_movie.sh song.kai
+
+# Or with vocals included
+./make_movie.sh --with-vocals song.kai
 ```
 
 ### From YouTube Video
@@ -180,6 +189,9 @@ export OPENAI_API_KEY="your-key"
 
 # 2. Create karaoke video
 ./make_movie.sh "Bohemian Rhapsody.kai"
+
+# Or include vocals for sing-along version
+./make_movie.sh --with-vocals "Bohemian Rhapsody.kai"
 ```
 
 ### Manual Lyrics Correction
@@ -196,6 +208,9 @@ export OPENAI_API_KEY="your-key"
 
 # 4. Create video
 ./make_movie.sh song_fixed.kai
+
+# Or with vocals for reference
+./make_movie.sh --with-vocals song_fixed.kai
 ```
 
 ## KAI File Format
@@ -227,5 +242,5 @@ kai-converter/
 - **Transcription**: OpenAI Whisper with word-level timestamps  
 - **Key Detection**: CREPE pitch analysis + Krumhansl-Schmuckler algorithm
 - **Lyrics Correction**: OpenAI GPT models with conservative error fixing
-- **Video Generation**: FFmpeg with synchronized lyrics and progress bars
+- **Video Generation**: FFmpeg with synchronized lyrics, progress bars, and optional vocal tracks
 - **Audio Quality**: MP3 encoding at configurable bitrates (default 160k stems, 128k vocals)
