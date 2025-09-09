@@ -37,4 +37,4 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
-python3 /home/monteslu/code/mine/kai-converter/src/utils/log_kai_lyrics.py "$@"
+python3 "$(dirname "$0")/src/utils/log_kai_lyrics.py" "$@"
