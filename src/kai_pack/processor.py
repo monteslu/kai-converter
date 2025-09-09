@@ -48,7 +48,7 @@ class KaiProcessor:
             chunk_size=chunk_size,
             overlap=overlap
         )
-        self.lyrics_transcriber = LyricsTranscriber(sample_rate=sample_rate, model_name=whisper_model, language=language)
+        self.lyrics_transcriber = LyricsTranscriber(sample_rate=sample_rate, model_name=whisper_model, language=language, device=device)
         self.metadata_extractor = MetadataExtractor()
         self.musical_analyzer = MusicalAnalyzer(sample_rate=sample_rate)
         self.song_json_generator = SongJsonGenerator()

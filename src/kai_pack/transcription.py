@@ -10,6 +10,7 @@ import multiprocessing
 import numpy as np
 import librosa
 import soundfile as sf
+import torch
 
 try:
     import whisper
@@ -85,11 +86,24 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
 class LyricsTranscriber:
     """Handles automatic lyrics transcription and alignment using Whisper."""
     
-    def __init__(self, sample_rate: int = 44100, model_name: str = "base", language: str = "en"):
+    def __init__(self, sample_rate: int = 44100, model_name: str = "base", language: str = "en", device: Optional[str] = None):
         self.sample_rate = sample_rate
         self.model_name = model_name
         self.language = language
         self.model = None
+        
+        # Auto-detect device if not specified
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+                self.device = "mps"
+            else:
+                self.device = "cpu"
+        else:
+            self.device = device
+        
+        logger.info(f"Using Whisper device: {self.device}")
         
         if not WHISPER_AVAILABLE:
             raise ImportError("Whisper is required for automatic lyrics transcription. Install with: pip install openai-whisper")
@@ -97,10 +111,19 @@ class LyricsTranscriber:
         # Load Whisper model
         try:
             logger.info(f"Loading Whisper model: {model_name}")
-            self.model = whisper.load_model(model_name)
+            self.model = whisper.load_model(model_name, device=self.device)
             logger.info(f"Successfully loaded Whisper model: {model_name}")
         except Exception as e:
-            raise RuntimeError(f"Failed to load Whisper model {model_name}: {e}")
+            if self.device == "mps" and "SparseMPS" in str(e):
+                logger.warning(f"MPS not compatible with {model_name}, falling back to CPU")
+                self.device = "cpu"
+                try:
+                    self.model = whisper.load_model(model_name, device=self.device)
+                    logger.info(f"Successfully loaded Whisper model: {model_name} on CPU")
+                except Exception as cpu_e:
+                    raise RuntimeError(f"Failed to load Whisper model {model_name} on CPU: {cpu_e}")
+            else:
+                raise RuntimeError(f"Failed to load Whisper model {model_name}: {e}")
     
     def detect_silence_boundaries(self, audio: np.ndarray, min_silence_duration: float = 0.5, 
                                 silence_threshold: float = -40) -> List[float]:
@@ -281,7 +304,7 @@ class LyricsTranscriber:
                 fmax=800,  # Typical vocal range
                 model='tiny',  # Fast model for filtering
                 batch_size=1,
-                device='cpu'  # Use CPU for consistency
+                device=self.device  # Use same device as Whisper
             )
             
             # Convert tensors to numpy arrays if needed and squeeze batch dimension

@@ -323,7 +323,7 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
                         retention_rate = len(common_words) / len(old_words) if old_words else 0
                         
                         # More lenient for short lines, stricter for longer ones
-                        min_retention = 0.15 if len(old_words) <= 6 else 0.35
+                        min_retention = 0.30 if len(old_words) <= 6 else 0.30
                         
                         if retention_rate < min_retention and len(old_words) > 2:
                             print(f"WARNING: Rejecting correction for line {line_num} (word retention {retention_rate:.1%}):")

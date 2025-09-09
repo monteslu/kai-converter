@@ -32,7 +32,12 @@ class StemSeparator:
         
         # Auto-detect device if not specified
         if device is None:
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                self.device = "cuda"
+            elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+                self.device = "mps"
+            else:
+                self.device = "cpu"
         else:
             self.device = device
             

@@ -22,7 +22,7 @@ if [ $# -eq 0 ]; then
     echo "  --no-analysis          Skip musical feature extraction (faster)"
     echo "  --features LIST        Comma-separated features to extract"
     echo "                         (default: f0,notes,tempo,keys,chords,onsets,mfcc)"
-    echo "  --gpu / --cpu          Force GPU or CPU for processing"
+    echo "  --gpu / --cpu          Force GPU or CPU for processing (auto: CUDA/MPS/CPU)"
     echo "  --verbose              Enable verbose logging"
     echo "  --help                 Show detailed help"
     echo ""

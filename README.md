@@ -15,6 +15,31 @@ A complete toolkit for creating KAI karaoke files with AI-powered source separat
 
 ## Installation
 
+### macOS Setup
+
+```bash
+# Create and activate virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install Cython first (required for madmom)
+pip install Cython
+
+# Install all dependencies
+pip install -r requirements.txt
+
+# Install madmom separately if it fails above
+pip install madmom --no-build-isolation
+
+# For YouTube support
+pip install yt-dlp
+
+# For lyrics correction
+pip install openai
+```
+
+### Linux Setup
+
 ```bash
 # Install dependencies
 pip install -r requirements.txt
@@ -31,6 +56,7 @@ pip install openai
 - Python 3.10+
 - ffmpeg (for audio/video processing)
 - yt-dlp (for YouTube downloads)
+- GPU acceleration supported: CUDA (NVIDIA) or MPS (Apple Silicon)
 
 ### System Dependencies
 
@@ -44,11 +70,17 @@ sudo apt install ffmpeg yt-dlp
 ```bash
 brew install ffmpeg
 ```
+*Note: Apple Silicon Macs will automatically use MPS acceleration for faster processing.*
 
 **Windows:**
 - Install ffmpeg from https://ffmpeg.org/download.html
 
 ## Quick Start
+
+**Note for macOS users:** Remember to activate your virtual environment before running commands:
+```bash
+source venv/bin/activate
+```
 
 All main functionality is available through simple shell scripts:
 

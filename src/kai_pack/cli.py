@@ -29,7 +29,7 @@ def setup_logging(verbose: bool) -> None:
 @click.argument("input_audio", type=click.Path(exists=True, path_type=Path))
 @click.option("-o", "--output", type=click.Path(path_type=Path), 
               help="Output .kai file path (default: <input_name>.kai)")
-@click.option("--gpu/--cpu", default=None, help="Device selection (default: auto)")
+@click.option("--gpu/--cpu", default=None, help="Device selection (default: auto - CUDA/MPS/CPU)")
 @click.option("--sr", default=44100, help="Target sample rate for processing")
 @click.option("--model", default="htdemucs_ft", 
               type=click.Choice(["htdemucs_ft", "htdemucs", "mdx_extra", "mdx"]),
