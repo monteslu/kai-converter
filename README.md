@@ -34,8 +34,13 @@ pip install madmom --no-build-isolation
 # For YouTube support
 pip install yt-dlp
 
-# For lyrics correction
-pip install openai
+# For lyrics correction - install packages for your chosen LLM provider:
+pip install openai              # For OpenAI GPT models  
+pip install anthropic           # For Anthropic Claude models
+pip install google-generativeai # For Google Gemini models (REQUIRED if using Gemini)
+# Local LM Studio requires no additional packages
+
+# Note: You only need to install the package for the provider you plan to use
 ```
 
 ### Linux Setup
@@ -47,8 +52,11 @@ pip install -r requirements.txt
 # For YouTube support (or use system package: sudo apt install yt-dlp)
 pip install yt-dlp
 
-# For lyrics correction
-pip install openai
+# For lyrics correction - install packages for your chosen LLM provider:
+pip install openai              # For OpenAI GPT models
+pip install anthropic           # For Anthropic Claude models  
+pip install google-generativeai # For Google Gemini models (REQUIRED if using Gemini)
+# Local LM Studio requires no additional packages
 ```
 
 ## Requirements
@@ -128,6 +136,37 @@ export OPENAI_API_KEY="your-key"
 
 # Fix lyrics with custom output
 ./fix_lyrics.sh song.kai --output song_corrected.kai
+
+# Use different LLM providers
+./fix_lyrics.sh song.kai --llm-provider lmstudio      # Local LM Studio
+./fix_lyrics.sh song.kai --llm-provider anthropic     # Anthropic Claude  
+./fix_lyrics.sh song.kai --llm-provider gemini        # Google Gemini
+./fix_lyrics.sh song.kai --llm-provider openai        # OpenAI (default)
+```
+
+#### LLM Provider Options
+
+The lyrics correction feature supports multiple AI providers:
+
+- **OpenAI** (default): Requires `OPENAI_API_KEY` environment variable
+- **LM Studio** (local): Free local inference, requires LM Studio running on localhost:1234  
+- **Anthropic Claude**: Requires `ANTHROPIC_API_KEY` environment variable
+- **Google Gemini**: Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable
+- **OpenAI-compatible**: For Ollama, Together.ai, etc. (specify `--llm-base-url`)
+
+```bash
+# Examples with different providers
+export OPENAI_API_KEY="your-key"
+./fix_lyrics.sh song.kai --llm-provider openai --llm-model gpt-4o
+
+export ANTHROPIC_API_KEY="your-key" 
+./fix_lyrics.sh song.kai --llm-provider anthropic --llm-model claude-3-5-sonnet-20241022
+
+export GEMINI_API_KEY="your-key"
+./fix_lyrics.sh song.kai --llm-provider gemini --llm-model gemini-1.5-pro
+
+# Local LM Studio (free, private) - model chosen in LM Studio GUI
+./fix_lyrics.sh song.kai --llm-provider lmstudio
 ```
 
 ### 4. Create Karaoke Video
@@ -236,11 +275,122 @@ kai-converter/
 └── README.md
 ```
 
+## LLM Provider System
+
+The KAI Converter features a flexible LLM (Large Language Model) abstraction system for lyrics correction, supporting multiple AI providers with automatic fallback and consistent performance.
+
+### Supported Providers
+
+| Provider | Type | Cost | Setup Required | Default Model |
+|----------|------|------|----------------|---------------|
+| **OpenAI** | Cloud API | Paid | `OPENAI_API_KEY` | gpt-4o |
+| **Google Gemini** | Cloud API | Paid | `GEMINI_API_KEY` | gemini-1.5-pro |
+| **Anthropic Claude** | Cloud API | Paid | `ANTHROPIC_API_KEY` | claude-3-5-sonnet |
+| **LM Studio** | Local | Free | Local setup | Selected in GUI |
+| **OpenAI-Compatible** | Various | Varies | Custom endpoint | Custom |
+
+### Auto-Detection
+
+The system automatically detects available providers in this order:
+1. **OpenAI** (if `OPENAI_API_KEY` environment variable exists)
+2. **Anthropic** (if `ANTHROPIC_API_KEY` exists)  
+3. **Google Gemini** (if `GEMINI_API_KEY` or `GOOGLE_API_KEY` exists)
+4. **LM Studio** (fallback - assumes localhost:1234)
+
+### Provider Comparison
+
+**OpenAI GPT-4o**
+- ✅ Excellent instruction following
+- ✅ Large context window  
+- ✅ Reliable, well-tested
+- ❌ Most expensive option
+- 💡 Best for: High-quality corrections, production use
+
+**Google Gemini 1.5 Pro**
+- ✅ Competitive quality
+- ✅ Large context window (2M tokens)
+- ✅ Often cheaper than OpenAI
+- ✅ Multiple model tiers (Pro/Flash)
+- 💡 Best for: Cost-conscious users wanting cloud quality
+
+**Anthropic Claude 3.5**
+- ✅ Strong reasoning capabilities
+- ✅ Conservative, thoughtful corrections
+- ✅ Good instruction following
+- ❌ More expensive than Gemini
+- 💡 Best for: Users preferring Claude's correction style
+
+**Local LM Studio**
+- ✅ Completely free and private
+- ✅ No API key required
+- ✅ Works offline
+- ❌ Requires local GPU/powerful CPU
+- ❌ Model quality varies
+- 💡 Best for: Privacy-focused users, unlimited usage
+
+### Quick Setup Examples
+
+**OpenAI (recommended for beginners)**
+```bash
+export OPENAI_API_KEY="sk-your-key-here"
+./fix_lyrics.sh song.kai  # Auto-detects and uses OpenAI
+```
+
+**Google Gemini (great value)**
+```bash
+export GEMINI_API_KEY="your-gemini-key"
+./fix_lyrics.sh song.kai --llm-provider gemini --llm-model gemini-1.5-flash  # Faster/cheaper
+```
+
+**LM Studio (free and private)**
+```bash
+# 1. Download and install LM Studio from https://lmstudio.ai/
+# 2. Download and load a model (see recommendations below)
+# 3. Start local server on port 1234
+./fix_lyrics.sh song.kai --llm-provider lmstudio
+```
+
+**Recommended models for lyrics correction:**
+- **Llama 3.1 8B Instruct** - Best overall quality/speed balance, works well on 16GB RAM
+- **Mistral 7B Instruct v0.2** - Faster, lower memory (8GB RAM), still good quality  
+- **Qwen2.5 7B Instruct** - Excellent instruction following, good for text correction
+- **CodeLlama 7B Instruct** - Surprisingly good at structured text tasks
+- **Phi-3 Medium 14B** - High quality but requires more memory (24GB+ RAM)
+
+**Memory requirements:**
+- 7B models: ~8GB RAM minimum, ~12GB recommended
+- 8B models: ~10GB RAM minimum, ~16GB recommended  
+- 14B+ models: ~20GB+ RAM required
+
+**Performance tips:**
+- Enable GPU acceleration if you have a compatible GPU (RTX 3060+)
+- Use quantized models (Q4_K_M) for better speed with minimal quality loss
+- Close other memory-intensive apps while running larger models
+
+**Custom providers (advanced)**
+```bash
+# Ollama example
+./fix_lyrics.sh song.kai --llm-provider openai-compatible --llm-base-url http://localhost:11434 --llm-model llama3
+```
+
+### Advanced Configuration
+
+All providers support these options:
+- `--llm-model`: Override default model
+- `--llm-api-key`: Override environment variable  
+- `--llm-base-url`: Custom endpoint (for compatible APIs)
+
+**Model recommendations by provider:**
+- **OpenAI**: `gpt-4o` (best), `gpt-4` (cheaper), `gpt-3.5-turbo` (budget)
+- **Gemini**: `gemini-1.5-pro` (quality), `gemini-1.5-flash` (speed/cost)
+- **Claude**: `claude-3-5-sonnet-20241022` (latest), `claude-3-haiku-20240307` (budget)
+- **LM Studio**: Model selected in GUI (recommended: Llama 3.1 8B+ Instruct)
+
 ## Technical Details
 
 - **Source Separation**: Demucs v4 with htdemucs_ft model
 - **Transcription**: OpenAI Whisper with word-level timestamps  
 - **Key Detection**: CREPE pitch analysis + Krumhansl-Schmuckler algorithm
-- **Lyrics Correction**: OpenAI GPT models with conservative error fixing
+- **Lyrics Correction**: Multi-provider LLM system (OpenAI, Gemini, Claude, Local) with conservative error fixing
 - **Video Generation**: FFmpeg with synchronized lyrics, progress bars, and optional vocal tracks
 - **Audio Quality**: MP3 encoding at configurable bitrates (default 160k stems, 128k vocals)

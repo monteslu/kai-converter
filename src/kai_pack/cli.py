@@ -52,7 +52,11 @@ def setup_logging(verbose: bool) -> None:
               type=click.Choice(["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]),
               help="Whisper model for lyrics transcription (default: small for good speed/accuracy balance)")
 @click.option("--language", default="en", help="Language code for transcription (e.g., 'en', 'es', 'fr', 'de', 'ja') or 'auto' for auto-detection")
-@click.option("--fix-lyrics", is_flag=True, help="Automatically fix lyrics using OpenAI after processing")
+@click.option("--fix-lyrics", is_flag=True, help="Automatically fix lyrics using LLM after processing")
+@click.option("--llm-provider", default="auto", help="LLM provider: openai, lmstudio, anthropic, gemini, openai-compatible (default: auto)")
+@click.option("--llm-model", help="LLM model name (uses provider default if not specified)")
+@click.option("--llm-base-url", help="Base URL for LM Studio or OpenAI-compatible APIs")
+@click.option("--llm-api-key", help="API key (overrides environment variables)")
 @click.option("--verbose", is_flag=True, help="Verbose logging")
 def main(
     input_audio: Path,
@@ -74,6 +78,10 @@ def main(
     whisper_model: str,
     language: str,
     fix_lyrics: bool,
+    llm_provider: str,
+    llm_model: Optional[str],
+    llm_base_url: Optional[str],
+    llm_api_key: Optional[str],
     verbose: bool,
 ) -> None:
     """Convert INPUT_AUDIO to a .kai karaoke file with AI-generated lyrics."""
@@ -138,29 +146,34 @@ def main(
         
         # Auto-fix lyrics if requested
         if fix_lyrics:
-            logger.info("Auto-fixing lyrics using OpenAI...")
+            logger.info(f"Auto-fixing lyrics using LLM provider: {llm_provider}")
             try:
                 import subprocess
-                import os
                 
-                # Check for OpenAI API key
-                if not os.getenv("OPENAI_API_KEY"):
-                    logger.error("OPENAI_API_KEY environment variable not set - skipping lyrics fixing")
+                # Build command for fix_lyrics.py with LLM provider options
+                fix_script = Path(__file__).parent.parent / "utils" / "fix_lyrics.py"
+                cmd = [
+                    "python3", str(fix_script),
+                    str(output),  # Input KAI file
+                    "--output", str(output),  # Output to same file (replace original)
+                    "--llm-provider", llm_provider
+                ]
+                
+                # Add optional parameters if provided
+                if llm_model:
+                    cmd.extend(["--llm-model", llm_model])
+                if llm_base_url:
+                    cmd.extend(["--llm-base-url", llm_base_url])
+                if llm_api_key:
+                    cmd.extend(["--llm-api-key", llm_api_key])
+                
+                result = subprocess.run(cmd)  # No capture_output - let it show through
+                
+                if result.returncode == 0:
+                    logger.info(f"✓ Lyrics automatically fixed using {llm_provider}")
                 else:
-                    # Call the fix_lyrics.py script in auto-fetch mode 
-                    fix_script = Path(__file__).parent.parent / "utils" / "fix_lyrics.py"
-                    
-                    result = subprocess.run([
-                        "python3", str(fix_script),
-                        str(output),  # Input KAI file
-                        "--output", str(output)  # Output to same file (replace original)
-                    ])  # No capture_output - let it show through
-                    
-                    if result.returncode == 0:
-                        logger.info("✓ Lyrics automatically fixed using OpenAI")
-                    else:
-                        logger.error("Lyrics fixing failed - see errors above")
-                            
+                    logger.error("Lyrics fixing failed - see errors above")
+                        
             except Exception as fix_error:
                 logger.error(f"Failed to auto-fix lyrics: {fix_error}")
         

@@ -16,7 +16,11 @@ if [ $# -eq 0 ]; then
     echo "                         Use 'auto' for mixed-language songs"
     echo "                         Examples: en, es, fr, de, ja, zh, ko, pt"
     echo "  --four-stems           Use 4-stem separation instead of default 2-stem"
-    echo "  --fix-lyrics           Automatically fix lyrics using OpenAI after processing"
+    echo "  --fix-lyrics           Automatically fix lyrics using LLM after processing"
+    echo "  --llm-provider PROV    LLM provider: openai, lmstudio, anthropic, gemini (default: auto)"
+    echo "  --llm-model MODEL      LLM model name (uses provider default if not specified)"
+    echo "  --llm-base-url URL     Base URL for LM Studio or compatible APIs"
+    echo "  --llm-api-key KEY      API key (overrides environment variables)"
     echo "  --stem-bitrate RATE    MP3 bitrate for stems (default: 160k)"
     echo "  --vocals-bitrate RATE  MP3 bitrate for vocals (default: same as stem-bitrate)"
     echo "  --no-analysis          Skip musical feature extraction (faster)"
@@ -31,7 +35,10 @@ if [ $# -eq 0 ]; then
     echo "  $0 --language es song.mp3                # Spanish transcription"
     echo "  $0 --language auto mixed.mp3             # Auto-detect language"
     echo "  $0 --four-stems --whisper-model large song.mp3 output.kai"
-    echo "  $0 --fix-lyrics song.mp3                 # Auto-fix lyrics with OpenAI"
+    echo "  $0 --fix-lyrics song.mp3                 # Auto-fix lyrics (auto-detect provider)"
+    echo "  $0 --fix-lyrics --llm-provider openai song.mp3     # Use OpenAI GPT"
+    echo "  $0 --fix-lyrics --llm-provider lmstudio song.mp3   # Use local LM Studio"
+    echo "  $0 --fix-lyrics --llm-provider gemini song.mp3     # Use Google Gemini"
     exit 1
 fi
 

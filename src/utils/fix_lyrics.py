@@ -176,22 +176,24 @@ Before suggesting ANY correction:
 REMEMBER: YOU ARE NOT A LYRIC EDITOR. YOU ARE A TRANSCRIPTION ERROR FIXER.
 Your job is to fix obvious mishearings, not to make lyrics match the reference perfectly.
 
-Return format: 
+Return format (MUST BE VALID JSON): 
 {{
   "corrections": [{{"line_num": 1, "old_text": "original", "new_text": "corrected"}}, ...],
   "description": "Brief factual description of the song if you can identify it from the lyrics, or null if unknown"
 }}
-Only include lines that actually need correction in the corrections array.
 
-OUTPUT JSON:"""
+CRITICAL: Only include lines that actually need correction in the corrections array.
+CRITICAL: Return ONLY valid JSON, no explanations, no markdown blocks, no additional text.
+
+JSON OUTPUT:"""
     
     return prompt
 
-def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, chunk_size=15):
+def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10):
     """Process lyrics in smaller chunks to avoid token limits"""
     if len(transcribed_lines) <= chunk_size:
         # Small enough to process in one go
-        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key)
+        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config)
     
     print(f"Processing {len(transcribed_lines)} lines in chunks of {chunk_size}...")
     
@@ -207,11 +209,16 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, chunk_
         for j, line in enumerate(chunk):
             print(f"  Line {i+j+1}: {line.get('text', '')[:50]}...")
         
-        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, start_line_num=i+1)
+        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config)
         if correction_result and len(correction_result) == 2:
             corrected_chunk, chunk_rejections = correction_result
-            corrected_lines.extend(corrected_chunk)
-            all_rejections.extend(chunk_rejections)
+            if corrected_chunk is not None:
+                corrected_lines.extend(corrected_chunk)
+                all_rejections.extend(chunk_rejections)
+            else:
+                # If correction fails, keep original
+                print(f"  WARNING: Chunk correction returned None, keeping original")
+                corrected_lines.extend(chunk)
         else:
             # If correction fails, keep original
             print(f"  WARNING: Chunk correction failed, keeping original")
@@ -219,46 +226,81 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, chunk_
     
     return corrected_lines, all_rejections
 
-def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
-    """Send to OpenAI API to fix lyrics."""
+def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None):
+    """Send to LLM API to fix lyrics."""
     try:
-        import openai
+        import sys
+        import os
+        sys.path.insert(0, os.path.dirname(__file__))
+        from llm_providers import get_llm_provider, get_default_model
         
-        # Use environment variable if no key provided
-        if not api_key:
-            api_key = os.getenv('OPENAI_API_KEY')
-        
-        if not api_key:
-            print("Error: OPENAI_API_KEY not found. Set it as environment variable or pass it to the script.")
-            return None, []
-        
-        client = openai.OpenAI(api_key=api_key)
+        # Use new config format or fall back to legacy api_key
+        if llm_config:
+            provider_type = llm_config.get('provider', 'auto')
+            model = llm_config.get('model')
+            provider_kwargs = {}
+            
+            if llm_config.get('base_url'):
+                provider_kwargs['base_url'] = llm_config['base_url']
+            if llm_config.get('api_key'):
+                provider_kwargs['api_key'] = llm_config['api_key']
+                
+            # Handle 'auto' by passing None to get_llm_provider for auto-detection
+            if provider_type == 'auto':
+                provider = get_llm_provider(None, **provider_kwargs)
+            else:
+                provider = get_llm_provider(provider_type, **provider_kwargs)
+            
+            # Get actual provider type if auto-detected
+            if provider_type == 'auto':
+                if hasattr(provider, '__class__'):
+                    class_name = provider.__class__.__name__
+                    if 'OpenAI' in class_name:
+                        provider_type = 'openai'
+                    elif 'LMStudio' in class_name:
+                        provider_type = 'lmstudio'
+                    elif 'Anthropic' in class_name:
+                        provider_type = 'anthropic'
+                    elif 'Gemini' in class_name:
+                        provider_type = 'gemini'
+                    else:
+                        provider_type = 'unknown'
+                        
+            if not model:
+                model = get_default_model(provider_type)
+        else:
+            # Legacy OpenAI mode
+            if not api_key:
+                api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                print("Error: No LLM configuration provided and OPENAI_API_KEY environment variable not set")
+                return None, []
+                
+            provider = get_llm_provider('openai', api_key=api_key)
+            provider_type = 'openai'
+            model = 'gpt-4o'
         
         prompt = create_prompt(transcribed_lines, correct_lyrics)
         
         # Log the transcribed lines being sent
-        print("=== TRANSCRIBED LINES BEING SENT TO OPENAI ===")
+        print(f"=== TRANSCRIBED LINES BEING SENT TO {provider_type.upper()} ===")
         for i, line in enumerate(transcribed_lines[:5]):  # Show first 5
             print(f"Line {i+1}: '{line.get('text', '')}'")
         print(f"... and {len(transcribed_lines)-5} more lines")
         print("=" * 50)
         
-        print("Sending to OpenAI for correction (this may take 10-20 seconds)...")
+        print(f"Sending to {provider_type} ({model}) for correction (this may take 10-60 seconds)...")
         import time
         start_time = time.time()
-        response = client.chat.completions.create(
-            model="gpt-4o",  # Better instruction following + larger context window
-            messages=[
-                {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1  # Low temperature for consistency
-        )
         
-        # Parse the response
-        response_text = response.choices[0].message.content
+        messages = [
+            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data."},
+            {"role": "user", "content": prompt}
+        ]
+        
+        response_text = provider.complete_chat(messages, model=model, temperature=0.1)
         elapsed = time.time() - start_time
-        print(f"Received response from OpenAI in {elapsed:.1f} seconds")
+        print(f"Received response from {provider_type} in {elapsed:.1f} seconds")
         
         # Log response preview
         print(f"Response length: {len(response_text)} characters")
@@ -270,6 +312,23 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
             response_text = response_text.split("```json")[1].split("```")[0]
         elif "```" in response_text:
             response_text = response_text.split("```")[1].split("```")[0]
+        
+        # Try to extract just the JSON object from the response
+        response_text = response_text.strip()
+        start_idx = response_text.find('{')
+        if start_idx != -1:
+            # Find the matching closing brace
+            brace_count = 0
+            end_idx = start_idx
+            for i, char in enumerate(response_text[start_idx:], start_idx):
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_idx = i
+                        break
+            response_text = response_text[start_idx:end_idx+1]
         
         # Try to parse JSON
         try:
@@ -292,12 +351,12 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
             
             # Show description if available
             if description:
-                print(f"=== SONG DESCRIPTION FROM OPENAI ===")
+                print(f"=== SONG DESCRIPTION FROM {provider_type.upper()} ===")
                 print(f"Description: {description}")
                 print("=" * 40)
             
-            print(f"Processing {len(corrections)} corrections from OpenAI...")
-            print("=== ALL CORRECTIONS FROM OPENAI ===")
+            print(f"Processing {len(corrections)} corrections from {provider_type.upper()}...")
+            print(f"=== ALL CORRECTIONS FROM {provider_type.upper()} ===")
             for i, correction in enumerate(corrections):
                 print(f"Correction {i+1}: Line {correction.get('line_num', '?')}")
                 print(f"  OLD: '{correction.get('old_text', '')}'")
@@ -322,8 +381,8 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
                         common_words = old_words & new_words
                         retention_rate = len(common_words) / len(old_words) if old_words else 0
                         
-                        # More lenient for short lines, stricter for longer ones
-                        min_retention = 0.30 if len(old_words) <= 6 else 0.30
+                        # More lenient for short lines, stricter for longer ones  
+                        min_retention = 0.20 if len(old_words) <= 6 else 0.20
                         
                         if retention_rate < min_retention and len(old_words) > 2:
                             print(f"WARNING: Rejecting correction for line {line_num} (word retention {retention_rate:.1%}):")
@@ -412,11 +471,12 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None):
                 print("Could not parse JSON response.")
                 return None, []
         
-    except ImportError:
-        print("Error: openai package not installed. Run: pip install openai")
+    except ImportError as e:
+        print(f"Error importing LLM provider: {e}")
+        print("Make sure to install required packages or check your configuration.")
         return None, []
     except Exception as e:
-        print(f"Error calling OpenAI API: {e}")
+        print(f"Error calling LLM API: {e}")
         return None, []
 
 def update_kai_file(kai_path, output_path, corrected_lines, updated_song_data=None):
@@ -557,15 +617,24 @@ def auto_fetch_lyrics(title, artist):
 @click.argument('kai_file', type=click.Path(exists=True, path_type=Path))
 @click.option('--lyrics-source', '-l', type=str, help='Lyrics source file or URL (auto-fetch if not provided)')
 @click.option('--output', '-o', type=click.Path(path_type=Path), help='Output KAI file (default: {input}_fixed.kai)')
-def main(kai_file: Path, lyrics_source: str, output: Path):
-    """Fix transcribed lyrics in a KAI file using OpenAI and correct lyrics.
+@click.option('--llm-provider', default='auto', help='LLM provider: openai, lmstudio, anthropic, gemini, openai-compatible (default: auto)')
+@click.option('--llm-model', help='Model name (uses provider default if not specified)')
+@click.option('--llm-base-url', help='Base URL for LM Studio or OpenAI-compatible APIs (default: http://localhost:1234)')
+@click.option('--llm-api-key', help='API key (overrides environment variables)')
+def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, llm_model: str, llm_base_url: str, llm_api_key: str):
+    """Fix transcribed lyrics in a KAI file using LLM providers for correction.
     
-    This script uses OpenAI GPT to correct transcription errors while preserving timing.
-    Set OPENAI_API_KEY environment variable before running.
+    Supports OpenAI, local LM Studio, Anthropic Claude, Google Gemini, and OpenAI-compatible APIs.
+    Auto-detects provider based on available API keys or defaults to LM Studio.
     
     Examples:
-      python3 fix_lyrics.py song.kai                           # Auto-fetch lyrics
-      python3 fix_lyrics.py song.kai -l lyrics.txt             # Use local file
+      python3 fix_lyrics.py song.kai                                    # Auto-fetch lyrics (auto-detect provider)
+      python3 fix_lyrics.py song.kai -l lyrics.txt                      # Use local file
+      python3 fix_lyrics.py song.kai --llm-provider openai              # Use OpenAI
+      python3 fix_lyrics.py song.kai --llm-provider lmstudio            # Use LM Studio (local)
+      python3 fix_lyrics.py song.kai --llm-provider anthropic           # Use Claude
+      python3 fix_lyrics.py song.kai --llm-provider gemini              # Use Google Gemini
+      python3 fix_lyrics.py song.kai --llm-model llama-3.1-8b-instruct  # Custom model
       python3 fix_lyrics.py song.kai -l https://genius.com/... # Use URL
       python3 fix_lyrics.py song.kai -o corrected.kai          # Custom output name
     """
@@ -624,10 +693,26 @@ def main(kai_file: Path, lyrics_source: str, output: Path):
     print("--- End Preview ---\n")
     
     # Fix lyrics with LLM 
-    result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics)
+    llm_config = {
+        'provider': llm_provider,
+        'model': llm_model,
+        'base_url': llm_base_url,
+        'api_key': llm_api_key
+    }
+    
+    # Use smaller chunks for local LM Studio due to context limits
+    if llm_provider == 'lmstudio' and len(transcribed_lines) > 10:
+        result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8)
+    else:
+        result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config)
     
     if result and len(result) == 2:
         corrected_lines, rejections = result
+        
+        # Check if corrected_lines is valid
+        if corrected_lines is None:
+            print("Failed to correct lyrics - no corrected lines returned")
+            return
         
         # Add rejections to song metadata if there are any
         if rejections:
