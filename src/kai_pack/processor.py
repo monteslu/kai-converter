@@ -245,7 +245,7 @@ class KaiProcessor:
                     
                     logger.info(f"→ Encoding {stem_name}.mp3 at {bitrate}...")
                     encoding_info = self.audio_processor.encode_mp3_with_ffmpeg(
-                        wav_path, mp3_path, bitrate
+                        wav_path, mp3_path, bitrate, metadata, stem_name
                     )
                     
                     stem_mp3_files[stem_name] = mp3_path

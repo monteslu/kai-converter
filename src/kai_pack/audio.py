@@ -11,6 +11,7 @@ import numpy as np
 import pyloudnorm as pyln
 import soundfile as sf
 from scipy.io import wavfile
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TPE2, TRCK, TPOS, TDRC, TCON, TSRC
 
 
 logger = logging.getLogger(__name__)
@@ -141,7 +142,9 @@ class AudioProcessor:
         self, 
         input_wav: Path, 
         output_mp3: Path, 
-        bitrate: str = "128k"
+        bitrate: str = "128k",
+        metadata: Optional[Dict[str, Any]] = None,
+        stem_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Encode WAV to MP3 using ffmpeg and extract encoder delay.
@@ -150,6 +153,8 @@ class AudioProcessor:
             input_wav: Input WAV file
             output_mp3: Output MP3 file
             bitrate: MP3 bitrate (e.g., "128k", "192k")
+            metadata: Optional metadata dict to write as ID3 tags
+            stem_name: Optional stem name for title modification
             
         Returns:
             Dict with encoding info including encoder_delay_samples
@@ -181,6 +186,10 @@ class AudioProcessor:
             
         # Extract encoder delay from MP3 file
         encoder_delay = self._get_mp3_encoder_delay(output_mp3)
+        
+        # Write ID3 tags if metadata provided
+        if metadata:
+            self._write_id3_tags(output_mp3, metadata, stem_name)
         
         return {
             "bitrate": bitrate,
@@ -217,3 +226,72 @@ class AudioProcessor:
         except Exception as e:
             logger.warning(f"Could not detect encoder delay: {e}, using default 1105")
             return 1105
+
+    def _write_id3_tags(self, mp3_path: Path, metadata: Dict[str, Any], stem_name: Optional[str] = None) -> None:
+        """
+        Write ID3 tags to MP3 file using metadata.
+        
+        Args:
+            mp3_path: Path to MP3 file
+            metadata: Metadata dict with song information
+            stem_name: Optional stem name to append to title
+        """
+        try:
+            # Load or create ID3 tags
+            try:
+                tags = ID3(mp3_path)
+            except:
+                # No ID3 tags exist, create new
+                tags = ID3()
+            
+            # Get normalized metadata
+            song_meta = metadata.get("song", {}) if isinstance(metadata, dict) else metadata
+            
+            # Basic text frames
+            title = song_meta.get("title", "Unknown")
+            if stem_name:
+                title = f"{title} ({stem_name.capitalize()})"
+            tags.add(TIT2(encoding=3, text=title))
+            
+            if "artist" in song_meta:
+                tags.add(TPE1(encoding=3, text=song_meta["artist"]))
+                
+            if "album" in song_meta:
+                tags.add(TALB(encoding=3, text=song_meta["album"]))
+                
+            if "album_artist" in song_meta:
+                tags.add(TPE2(encoding=3, text=song_meta["album_artist"]))
+                
+            # Track and disc info
+            track_info = song_meta.get("track", {})
+            if isinstance(track_info, dict):
+                track_no = track_info.get("no")
+                track_of = track_info.get("of", 0)
+                if track_no:
+                    track_text = f"{track_no}/{track_of}" if track_of else str(track_no)
+                    tags.add(TRCK(encoding=3, text=track_text))
+            
+            disc_info = song_meta.get("disc", {})
+            if isinstance(disc_info, dict):
+                disc_no = disc_info.get("no")
+                disc_of = disc_info.get("of", 1)
+                if disc_no:
+                    disc_text = f"{disc_no}/{disc_of}" if disc_of else str(disc_no)
+                    tags.add(TPOS(encoding=3, text=disc_text))
+            
+            # Date/year
+            if "year" in song_meta:
+                tags.add(TDRC(encoding=3, text=song_meta["year"]))
+                
+            if "genre" in song_meta:
+                tags.add(TCON(encoding=3, text=song_meta["genre"]))
+                
+            if "isrc" in song_meta:
+                tags.add(TSRC(encoding=3, text=song_meta["isrc"]))
+            
+            # Save tags to file
+            tags.save(mp3_path)
+            logger.debug(f"Written ID3 tags to {mp3_path} (stem: {stem_name})")
+            
+        except Exception as e:
+            logger.warning(f"Failed to write ID3 tags to {mp3_path}: {e}")
