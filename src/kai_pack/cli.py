@@ -57,6 +57,8 @@ def setup_logging(verbose: bool) -> None:
 @click.option("--llm-model", help="LLM model name (uses provider default if not specified)")
 @click.option("--llm-base-url", help="Base URL for LM Studio or OpenAI-compatible APIs")
 @click.option("--llm-api-key", help="API key (overrides environment variables)")
+@click.option("--crepe-filter", is_flag=True, help="Enable CREPE filtering to skip non-vocal chunks (default: disabled, recommended for extreme vocals)")
+@click.option("--silence-threshold", default=-20, help="Silence threshold in dB for chunk detection (default: -20, lower values = more sensitive)")
 @click.option("--verbose", is_flag=True, help="Verbose logging")
 def main(
     input_audio: Path,
@@ -82,6 +84,8 @@ def main(
     llm_model: Optional[str],
     llm_base_url: Optional[str],
     llm_api_key: Optional[str],
+    crepe_filter: bool,
+    silence_threshold: int,
     verbose: bool,
 ) -> None:
     """Convert INPUT_AUDIO to a .kai karaoke file with AI-generated lyrics."""
@@ -118,6 +122,8 @@ def main(
             device=device,
             whisper_model=whisper_model,
             language=language,
+            use_crepe_filter=crepe_filter,
+            silence_threshold=silence_threshold,
             verbose=verbose
         )
         

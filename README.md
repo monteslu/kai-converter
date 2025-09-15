@@ -15,17 +15,63 @@ A complete toolkit for creating KAI karaoke files with AI-powered source separat
 
 ## Installation
 
-### macOS Setup
+### Prerequisites
+
+**System Requirements:**
+- **Python 3.8+** (Python 3.9+ recommended)
+- **ffmpeg** for audio processing
+- **git** to clone the repository
+
+### 1. Clone Repository & Setup
+
+```bash
+git clone https://github.com/your-repo/kai-converter.git
+cd kai-converter
+```
+
+### 2. System Dependencies
+
+#### macOS
+```bash
+# Install ffmpeg via Homebrew
+brew install ffmpeg
+
+# Or via MacPorts
+sudo port install ffmpeg
+```
+
+#### Linux (Ubuntu/Debian)
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg python3-venv python3-pip
+```
+
+#### Linux (CentOS/RHEL/Fedora)
+```bash
+# For Fedora/newer RHEL
+sudo dnf install ffmpeg python3-venv python3-pip
+
+# For older CentOS/RHEL (may need EPEL repository)
+sudo yum install epel-release
+sudo yum install ffmpeg python3-venv python3-pip
+```
+
+### 3. Python Environment Setup
+
+**Both macOS and Linux:**
 
 ```bash
 # Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
+# IMPORTANT: Always activate the virtual environment before using kai-converter:
+# source venv/bin/activate
+
 # Install Cython first (required for madmom)
 pip install Cython
 
-# Install all dependencies
+# Install core dependencies
 pip install -r requirements.txt
 
 # Install madmom separately if it fails above
@@ -33,59 +79,69 @@ pip install madmom --no-build-isolation
 
 # For YouTube support
 pip install yt-dlp
-
-# For lyrics correction - install packages for your chosen LLM provider:
-pip install openai              # For OpenAI GPT models  
-pip install anthropic           # For Anthropic Claude models
-pip install google-generativeai # For Google Gemini models (REQUIRED if using Gemini)
-# Local LM Studio requires no additional packages
-
-# Note: You only need to install the package for the provider you plan to use
 ```
 
-### Linux Setup
+### 4. Optional: LLM Providers for Lyrics Correction
+
+Choose and install **only the provider you plan to use:**
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# OpenAI GPT models (requires OPENAI_API_KEY)
+pip install openai
 
-# For YouTube support (or use system package: sudo apt install yt-dlp)
-pip install yt-dlp
+# Anthropic Claude (requires ANTHROPIC_API_KEY)  
+pip install anthropic
 
-# For lyrics correction - install packages for your chosen LLM provider:
-pip install openai              # For OpenAI GPT models
-pip install anthropic           # For Anthropic Claude models  
-pip install google-generativeai # For Google Gemini models (REQUIRED if using Gemini)
-# Local LM Studio requires no additional packages
+# Google Gemini (requires GEMINI_API_KEY or GOOGLE_API_KEY)
+pip install google-generativeai
+
+# Local LM Studio - no additional packages needed
+# Just run LM Studio locally on localhost:1234
 ```
 
-## Requirements
+### 5. Test Installation
 
-- Python 3.10+
-- ffmpeg (for audio/video processing)
-- yt-dlp (for YouTube downloads)
-- GPU acceleration supported: CUDA (NVIDIA) or MPS (Apple Silicon)
-
-### System Dependencies
-
-**Ubuntu/Debian:**
 ```bash
-sudo apt update
-sudo apt install ffmpeg yt-dlp
+# Activate virtual environment (if not already active)
+source venv/bin/activate
+
+# Test basic functionality
+python -c "from src.kai_pack.processor import KaiProcessor; print('✓ Installation successful!')"
+
+# Test Whisper
+python -c "import whisper; print('✓ Whisper available')"
+
+# Test ffmpeg
+ffmpeg -version | head -1
 ```
 
-**macOS:**
-```bash
-brew install ffmpeg
-```
-*Note: Apple Silicon Macs will automatically use MPS acceleration for faster processing.*
+## GPU Acceleration (Optional)
 
-**Windows:**
-- Install ffmpeg from https://ffmpeg.org/download.html
+- **NVIDIA GPUs**: CUDA acceleration supported automatically
+- **Apple Silicon Macs**: MPS acceleration used automatically  
+- **CPU-only**: Works fine, just slower for processing
+
+## Common Issues & Solutions
+
+### macOS
+- **"No module named 'X'"**: Make sure virtual environment is activated: `source venv/bin/activate`
+- **Permission errors**: Use `pip install --user` if needed
+- **Apple Silicon**: Some packages may need Rosetta 2: `arch -x86_64 pip install package`
+
+### Linux
+- **Missing Python headers**: `sudo apt-get install python3-dev`
+- **Audio issues**: `sudo apt-get install libasound2-dev libportaudio2`
+- **Build failures**: `sudo apt-get install build-essential`
+
+### General
+- **FFmpeg not found**: Ensure ffmpeg is in PATH, test with `ffmpeg -version`
+- **Out of memory**: Use `--chunk-size` parameter or smaller Whisper model
+- **Slow processing**: Enable GPU acceleration or use smaller models
 
 ## Quick Start
 
-**Note for macOS users:** Remember to activate your virtual environment before running commands:
+**⚠️ IMPORTANT:** Always activate the virtual environment before using kai-converter:
+
 ```bash
 source venv/bin/activate
 ```
@@ -192,13 +248,37 @@ export GEMINI_API_KEY="your-key"
 - `--language LANG` - Language code (en, es, fr, de, ja, etc.) or 'auto' for detection
 - `--four-stems` - Use 4-stem separation instead of default 2-stem
 - `--fix-lyrics` - Automatically fix lyrics with OpenAI after processing
+- `--crepe-filter` - Enable CREPE filtering to skip non-vocal chunks (default: disabled)
+- `--silence-threshold DB` - Silence threshold in dB for chunk detection (default: -20, lower = more sensitive)
 - `--verbose` - Detailed logging
 
 ### convert_youtube.sh Options  
 - `--title "TITLE"` - Song title (required)
 - `--artist "ARTIST"` - Artist name (required)
-- All kai_pack.sh options are supported
+- All kai_pack.sh options are supported (including --crepe-filter and --silence-threshold)
 - `--keep-mp3` - Keep intermediate MP3 file
+
+## Extreme Vocals & Metal
+
+For extreme vocals (death metal, black metal, screaming, etc.), the default CREPE filtering may skip vocal sections. Use these settings:
+
+```bash
+# For extreme vocals - disable CREPE filtering, increase sensitivity
+./kai_pack.sh --silence-threshold -10 --whisper-model large-v3 extreme_song.mp3
+
+# For YouTube extreme vocals
+./convert_youtube.sh \
+  --title "Multinational Corporations" \
+  --artist "Napalm Death" \
+  --silence-threshold -10 \
+  --whisper-model large-v3 \
+  'https://youtube.com/watch?v=...'
+```
+
+**What these settings do:**
+- **No `--crepe-filter`**: Processes all audio chunks instead of filtering non-vocal sections
+- **`--silence-threshold -10`**: More sensitive to quiet/distorted vocals (default: -20)
+- **`--whisper-model large-v3`**: Best accuracy for difficult vocals
 
 ## Example Workflows
 

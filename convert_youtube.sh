@@ -23,6 +23,8 @@ show_usage() {
     echo "                         Examples: en, es, fr, de, ja, zh, ko, pt"
     echo "  --four-stems           Use 4-stem separation instead of default 2-stem"
     echo "  --fix-lyrics           Automatically fix lyrics using OpenAI after processing"
+    echo "  --crepe-filter         Enable CREPE filtering to skip non-vocal chunks (default: disabled)"
+    echo "  --silence-threshold DB Silence threshold in dB for chunk detection (default: -20)"
     echo "  --remove-mp3           Remove the intermediate MP3 file after conversion (default: keep)"
     echo "  --mp3-quality QUALITY  Audio quality (0=best, 9=worst, default: 0)"
     echo "  --verbose              Enable verbose logging"
@@ -33,6 +35,7 @@ show_usage() {
     echo "  $0 --title \"La Bamba\" --artist \"Ritchie Valens\" --language es 'URL'"
     echo "  $0 --title \"Song\" --artist \"Artist\" --language auto --whisper-model large 'URL'"
     echo "  $0 --title \"My Song\" --artist \"My Artist\" --four-stems 'URL' output.kai"
+    echo "  $0 --title \"Extreme Song\" --artist \"Metal Band\" --silence-threshold -10 'URL'"
     echo ""
     echo "Requirements:"
     echo "  - yt-dlp (install with: pip install yt-dlp)"
@@ -85,6 +88,14 @@ while [[ $# -gt 0 ]]; do
         --fix-lyrics)
             FIX_LYRICS="--fix-lyrics"
             shift
+            ;;
+        --crepe-filter)
+            EXTRA_ARGS="$EXTRA_ARGS --crepe-filter"
+            shift
+            ;;
+        --silence-threshold)
+            EXTRA_ARGS="$EXTRA_ARGS --silence-threshold $2"
+            shift 2
             ;;
         --remove-mp3)
             KEEP_MP3=false
@@ -223,6 +234,48 @@ fi
 mv "$DOWNLOADED_MP3" "$MP3_FILE"
 
 echo "✓ Audio extracted: $MP3_FILE"
+
+# Write ID3 tags to the MP3 file
+echo "Writing ID3 tags to MP3..."
+python3 -c "
+import sys
+try:
+    from mutagen.id3 import ID3, TIT2, TPE1, TDRC, COMM
+    import re
+    
+    mp3_file = '$MP3_FILE'
+    title = '$TITLE'
+    artist = '$ARTIST'
+    video_title = '$VIDEO_TITLE'
+    
+    # Load or create ID3 tags
+    try:
+        tags = ID3(mp3_file)
+    except:
+        tags = ID3()
+    
+    # Add basic tags
+    tags.add(TIT2(encoding=3, text=title))
+    tags.add(TPE1(encoding=3, text=artist))
+    
+    # Try to extract year from video title or use current year
+    year_match = re.search(r'(19|20)\d{2}', video_title)
+    if year_match:
+        tags.add(TDRC(encoding=3, text=year_match.group()))
+    
+    # Add comment with original YouTube title
+    tags.add(COMM(encoding=3, lang='eng', desc='YouTube', text=video_title))
+    
+    # Save tags
+    tags.save(mp3_file)
+    print(f'✓ ID3 tags written: {title} by {artist}')
+    
+except ImportError:
+    print('⚠ Warning: mutagen not available, skipping ID3 tags')
+except Exception as e:
+    print(f'⚠ Warning: Failed to write ID3 tags: {e}')
+"
+
 echo ""
 
 # Convert to KAI format

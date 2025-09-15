@@ -86,7 +86,7 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
 class LyricsTranscriber:
     """Handles automatic lyrics transcription and alignment using Whisper."""
     
-    def __init__(self, sample_rate: int = 44100, model_name: str = "base", language: str = "en", device: Optional[str] = None):
+    def __init__(self, sample_rate: int = 44100, model_name: str = "base", language: str = "en", device: Optional[str] = None, use_crepe_filter: bool = False, silence_threshold: int = -20):
         self.sample_rate = sample_rate
         self.model_name = model_name
         self.language = language
@@ -102,8 +102,13 @@ class LyricsTranscriber:
                 self.device = "cpu"
         else:
             self.device = device
+            
+        self.use_crepe_filter = use_crepe_filter
+        self.silence_threshold = silence_threshold
         
         logger.info(f"Using Whisper device: {self.device}")
+        logger.info(f"CREPE filtering: {'enabled' if use_crepe_filter else 'disabled'}")
+        logger.info(f"Silence threshold: {silence_threshold} dB")
         
         if not WHISPER_AVAILABLE:
             raise ImportError("Whisper is required for automatic lyrics transcription. Install with: pip install openai-whisper")
@@ -126,18 +131,24 @@ class LyricsTranscriber:
                 raise RuntimeError(f"Failed to load Whisper model {model_name}: {e}")
     
     def detect_silence_boundaries(self, audio: np.ndarray, min_silence_duration: float = 0.5, 
-                                silence_threshold: float = -40) -> List[float]:
+                                silence_threshold: Optional[float] = None) -> List[float]:
         """
         Detect silence gaps suitable for chunk boundaries.
         
         Args:
             audio: Mono audio signal
             min_silence_duration: Minimum silence duration in seconds to consider
-            silence_threshold: Silence threshold in dB
+            silence_threshold: Silence threshold in dB (uses instance default if None)
             
         Returns:
             List of boundary timestamps in seconds
         """
+        # Use instance silence threshold if not provided
+        if silence_threshold is None:
+            silence_threshold = self.silence_threshold
+            
+        logger.debug(f"Detecting silence boundaries with threshold {silence_threshold} dB")
+        
         # Convert stereo to mono if needed
         if len(audio.shape) == 2:
             audio = np.mean(audio, axis=0)
@@ -373,7 +384,7 @@ class LyricsTranscriber:
             return self._transcribe_full_audio(vocals_audio)
         
         # Step 1: Detect silence boundaries for smart chunking
-        logger.info("→ Analyzing vocals for silence boundaries...")
+        logger.info(f"→ Analyzing vocals for silence boundaries (threshold: {self.silence_threshold} dB)...")
         boundaries = self.detect_silence_boundaries(vocals_audio)
         logger.info(f"✓ Found {len(boundaries)-1} audio segments from silence analysis")
         
@@ -384,47 +395,80 @@ class LyricsTranscriber:
             logger.warning("No audio chunks created, falling back to full audio transcription")
             return self._transcribe_full_audio(vocals_audio)
         
-        # Step 3: Filter chunks using CREPE vocal quality analysis
-        logger.info(f"→ Filtering {len(chunks)} chunks using CREPE vocal quality analysis...")
+        # Step 3: Filter chunks using CREPE vocal quality analysis (if enabled)
+        logger.info("=" * 60)
+        logger.info(f"CHUNK FILTERING SETTINGS:")
+        logger.info(f"  CREPE filtering: {'ENABLED' if self.use_crepe_filter else 'DISABLED'}")
+        logger.info(f"  Silence threshold: {self.silence_threshold} dB")
+        logger.info(f"  Total chunks to process: {len(chunks)}")
+        logger.info("=" * 60)
         
-        filtered_chunks = []
-        skipped_chunks = 0
-        crepe_available = CREPE_AVAILABLE
-        
-        if crepe_available:
-            logger.info("→ CREPE available - analyzing vocal content in chunks")
-        else:
-            logger.info("→ CREPE not available - processing all chunks")
-        
-        for i, chunk in enumerate(chunks):
-            chunk_start_time = chunk['start_time']
-            chunk_end_time = chunk['end_time']
+        if self.use_crepe_filter:
+            logger.info(f"→ Filtering {len(chunks)} chunks using CREPE vocal quality analysis...")
             
-            # Analyze vocal quality with CREPE
-            vocal_analysis = self.analyze_chunk_vocal_quality(chunk, min_confidence=0.01)
-            is_vocal = vocal_analysis['is_vocal']
-            confidence = vocal_analysis['vocal_confidence']
+            filtered_chunks = []
+            skipped_chunks = 0
+            crepe_available = CREPE_AVAILABLE
             
-            logger.info(f"→ Chunk {i+1}/{len(chunks)}: {chunk_start_time:.1f}s-{chunk_end_time:.1f}s "
-                       f"({chunk['duration']:.1f}s) - CREPE conf: {confidence:.2f}")
-            
-            # Add vocal analysis to chunk
-            chunk['vocal_analysis'] = vocal_analysis
-            
-            is_strong = vocal_analysis.get('is_strong_vocal', False)
-            is_weak = vocal_analysis.get('is_weak_vocal', False)
-            
-            if is_vocal:  # Keep any vocal content (strong OR weak)
-                filtered_chunks.append(chunk)
-                if is_strong:
-                    logger.info(f"  ✓ Strong vocal chunk (conf: {confidence:.2f}) - will transcribe")
-                elif is_weak:
-                    logger.info(f"  ⚠ Weak vocal chunk (conf: {confidence:.2f}) - will mark for editing")
+            if crepe_available:
+                logger.info("→ CREPE available - analyzing vocal content in chunks")
             else:
-                skipped_chunks += 1
-                logger.info(f"  ✕ Non-vocal chunk (conf: {confidence:.2f}) - skipping")
+                logger.info("→ CREPE not available - processing all chunks")
+        else:
+            logger.info("→ CREPE filtering DISABLED - processing ALL chunks (recommended for extreme vocals)")
+            filtered_chunks = chunks
+            skipped_chunks = 0
         
-        logger.info(f"✓ Filtered to {len(filtered_chunks)} vocal chunks (skipped {skipped_chunks})")
+        if self.use_crepe_filter:
+            for i, chunk in enumerate(chunks):
+                chunk_start_time = chunk['start_time']
+                chunk_end_time = chunk['end_time']
+                
+                # Analyze vocal quality with CREPE
+                vocal_analysis = self.analyze_chunk_vocal_quality(chunk, min_confidence=0.01)
+                is_vocal = vocal_analysis['is_vocal']
+                confidence = vocal_analysis['vocal_confidence']
+                
+                logger.info(f"→ Chunk {i+1}/{len(chunks)}: {chunk_start_time:.1f}s-{chunk_end_time:.1f}s "
+                           f"({chunk['duration']:.1f}s) - CREPE conf: {confidence:.2f}")
+                
+                # Add vocal analysis to chunk
+                chunk['vocal_analysis'] = vocal_analysis
+                
+                is_strong = vocal_analysis.get('is_strong_vocal', False)
+                is_weak = vocal_analysis.get('is_weak_vocal', False)
+                
+                if is_vocal:  # Keep any vocal content (strong OR weak)
+                    filtered_chunks.append(chunk)
+                    if is_strong:
+                        logger.info(f"  ✓ Strong vocal chunk (conf: {confidence:.2f}) - will transcribe")
+                    elif is_weak:
+                        logger.info(f"  ⚠ Weak vocal chunk (conf: {confidence:.2f}) - will mark for editing")
+                else:
+                    skipped_chunks += 1
+                    logger.info(f"  ✕ Non-vocal chunk (conf: {confidence:.2f}) - skipping")
+            
+            logger.info("=" * 60)
+            logger.info(f"CREPE FILTERING RESULTS:")
+            logger.info(f"  Chunks processed: {len(chunks)}")
+            logger.info(f"  Chunks kept: {len(filtered_chunks)}")
+            logger.info(f"  Chunks skipped: {skipped_chunks}")
+            logger.info(f"  Skip rate: {skipped_chunks/len(chunks)*100:.1f}%")
+            logger.info("=" * 60)
+        else:
+            # Add dummy vocal analysis to chunks for consistency
+            for chunk in filtered_chunks:
+                chunk['vocal_analysis'] = {
+                    'is_vocal': True,
+                    'is_strong_vocal': True,
+                    'is_weak_vocal': False,
+                    'vocal_confidence': 1.0
+                }
+            logger.info("=" * 60)
+            logger.info(f"NO FILTERING APPLIED:")
+            logger.info(f"  All {len(filtered_chunks)} chunks will be processed")
+            logger.info(f"  No chunks skipped (0 skipped)")
+            logger.info("=" * 60)
         
         if len(filtered_chunks) == 0:
             logger.warning("No vocal chunks found after filtering, processing all chunks anyway")
