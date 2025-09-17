@@ -124,8 +124,11 @@ echo "Folder: $FOLDER"
 echo "Options: $KAI_PACK_ARGS"
 echo ""
 
-# Find all MP3 files
-mapfile -t MP3_FILES < <(find "$FOLDER" -maxdepth 1 -name "*.mp3" -type f | sort)
+# Find all MP3 files (portable method for older bash/zsh compatibility)
+MP3_FILES=()
+while IFS= read -r -d '' file; do
+    MP3_FILES+=("$file")
+done < <(find "$FOLDER" -maxdepth 1 -name "*.mp3" -type f -print0 | sort -z)
 
 if [ ${#MP3_FILES[@]} -eq 0 ]; then
     echo "No MP3 files found in $FOLDER"
