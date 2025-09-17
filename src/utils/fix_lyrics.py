@@ -316,11 +316,11 @@ JSON OUTPUT:"""
     
     return prompt
 
-def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10, song_data=None):
+def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10, song_data=None, kai_file_path=None):
     """Process lyrics in smaller chunks to avoid token limits"""
     if len(transcribed_lines) <= chunk_size:
         # Small enough to process in one go
-        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config, song_data=song_data)
+        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
     
     print(f"Processing {len(transcribed_lines)} lines in chunks of {chunk_size}...")
     
@@ -336,7 +336,7 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_co
         for j, line in enumerate(chunk):
             print(f"  Line {i+j+1}: {line.get('text', '')[:50]}...")
         
-        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config, song_data=song_data)
+        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
         if correction_result and len(correction_result) == 3:
             corrected_chunk, chunk_rejections, chunk_missing = correction_result
             if corrected_chunk is not None:
@@ -354,7 +354,7 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_co
     
     return corrected_lines, all_rejections, []
 
-def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, song_data=None):
+def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, song_data=None, kai_file_path=None):
     """Send to LLM API to fix lyrics."""
     try:
         import sys
@@ -624,6 +624,26 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
         return None, [], []
     except Exception as e:
         print(f"Error calling LLM API: {e}")
+
+        # Log lyrics fixing errors
+        try:
+            with open("lyric_errors.txt", "a", encoding="utf-8") as f:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                f.write(f"\n[{timestamp}] LLM API Error:\n")
+                f.write(f"Error: {str(e)}\n")
+                if kai_file_path:
+                    f.write(f"KAI file: {kai_file_path}\n")
+                if 'transcribed_lines' in locals() and transcribed_lines:
+                    song_info = f"Lines: {len(transcribed_lines)}"
+                    if transcribed_lines and 'text' in transcribed_lines[0]:
+                        first_line = transcribed_lines[0]['text'][:50]
+                        song_info += f", First line: \"{first_line}...\""
+                    f.write(f"Song info: {song_info}\n")
+                f.write("-" * 50 + "\n")
+        except Exception as log_error:
+            print(f"Failed to log error: {log_error}")
+
         return None, [], []
 
 def update_kai_file(kai_path, output_path, corrected_lines, updated_song_data=None):
@@ -849,9 +869,9 @@ def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, ll
     
     # Use smaller chunks for local LM Studio due to context limits
     if llm_provider == 'lmstudio' and len(transcribed_lines) > 10:
-        result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8, song_data=song_data)
+        result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8, song_data=song_data, kai_file_path=kai_file)
     else:
-        result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data)
+        result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data, kai_file_path=kai_file)
     
     if result and len(result) == 3:
         corrected_lines, rejections, missing_lines_suggested = result

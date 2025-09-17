@@ -225,6 +225,16 @@ for i in "${!TO_PROCESS[@]}"; do
         echo "✗ Failed!"
         FAILED_COUNT=$((FAILED_COUNT + 1))
         FAILED_FILES+=("$base_name")
+
+        # Log failure to lyric_errors.txt
+        {
+            echo ""
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Batch Processing Failure:"
+            echo "File: $mp3_file"
+            echo "Command: $KAI_PACK_CMD"
+            echo "Exit code: $?"
+            echo "$(printf '%s' '-' | head -c 50)"
+        } >> lyric_errors.txt
     fi
 done
 
