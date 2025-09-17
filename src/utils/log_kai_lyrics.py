@@ -64,14 +64,36 @@ def log_kai_lyrics(kai_file: str):
             
             print("=" * 80)
             print(f"Total segments: {len([l for l in lines if l.get('text', '').strip()])}")
-            
+
             # Calculate timing coverage
             if lines:
                 first_line = min(l.get('start', float('inf')) for l in lines if l.get('text', '').strip())
                 last_line = max(l.get('end', 0) for l in lines if l.get('text', '').strip())
                 coverage = (last_line - first_line) / duration * 100 if duration > 0 else 0
                 print(f"Vocal coverage: {first_line:.1f}s to {last_line:.1f}s ({coverage:.1f}% of song)")
-            
+
+            # Check for rejected lyric corrections
+            corrections = meta.get('corrections', {})
+            rejected_corrections = corrections.get('rejected', [])
+
+            if rejected_corrections:
+                print("=" * 80)
+                print("REJECTED LYRIC CORRECTIONS")
+                print("=" * 80)
+                for i, rejection in enumerate(rejected_corrections, 1):
+                    line_num = rejection.get('line', 'Unknown')
+                    reason = rejection.get('reason', 'No reason given')
+                    old_text = rejection.get('old', 'N/A')
+                    new_text = rejection.get('new', 'N/A')
+                    retention = rejection.get('word_retention', 0.0)
+
+                    print(f"Rejection {i}: Line {line_num}")
+                    print(f"  Reason: {reason}")
+                    print(f"  Word retention: {retention:.1%}")
+                    print(f"  OLD: {old_text}")
+                    print(f"  NEW: {new_text}")
+                    print()
+
             print("=" * 80)
             return True
             

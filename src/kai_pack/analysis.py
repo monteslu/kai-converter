@@ -40,10 +40,11 @@ logger = logging.getLogger(__name__)
 class MusicalAnalyzer:
     """Handles musical analysis feature extraction."""
     
-    def __init__(self, sample_rate: int = 44100, hop_length: int = 512):
+    def __init__(self, sample_rate: int = 44100, hop_length: int = 512, vocal_pitch_type: str = "midi_cents"):
         self.sample_rate = sample_rate
         self.hop_length = hop_length
         self.frame_rate = sample_rate / hop_length
+        self.vocal_pitch_type = vocal_pitch_type
         
     def extract_features(
         self, 
@@ -79,7 +80,12 @@ class MusicalAnalyzer:
                     logger.info(f"    → Running CREPE pitch detection on vocals ({len(vocals_mono)/self.sample_rate:.1f}s of audio)...")
                     f0_data = self.extract_f0(vocals_mono)
                     features["vocals_f0"] = f0_data
-                    
+
+                    # Quantize pitch data for vocal_pitch
+                    logger.info(f"    → Quantizing pitch data using method: {self.vocal_pitch_type}")
+                    vocal_pitch_data = self.quantize_vocal_pitch(f0_data, self.vocal_pitch_type)
+                    features["vocal_pitch"] = vocal_pitch_data
+
                     # Also detect musical key from the pitch data
                     logger.info(f"    → Detecting musical key from pitch data...")
                     key_data = self.detect_key_from_f0(f0_data)
@@ -224,7 +230,189 @@ class MusicalAnalyzer:
             "method": "krumhansl_schmuckler",
             "pitch_histogram": pitch_histogram.tolist()
         }
-        
+
+    def quantize_vocal_pitch(self, f0_data: Dict[str, Any], quantization_type: str) -> Dict[str, Any]:
+        """
+        Quantize vocal pitch data using the specified method.
+
+        Args:
+            f0_data: Raw F0 data from extract_f0
+            quantization_type: One of "midi_cents", "note_only_rle", "segments", "delta_encoded"
+
+        Returns:
+            Quantized pitch data suitable for song.json vocal_pitch field
+        """
+        frequencies = np.array(f0_data["frequencies"])
+        times = np.array(f0_data["times"])
+        confidence = np.array(f0_data["confidence"])
+
+        if quantization_type == "midi_cents":
+            return self._quantize_midi_cents(frequencies, times, confidence)
+        elif quantization_type == "note_only_rle":
+            return self._quantize_note_only_rle(frequencies, times, confidence)
+        elif quantization_type == "segments":
+            return self._quantize_segments(frequencies, times, confidence)
+        elif quantization_type == "delta_encoded":
+            return self._quantize_delta_encoded(frequencies, times, confidence)
+        else:
+            logger.warning(f"Unknown quantization type: {quantization_type}, using midi_cents")
+            return self._quantize_midi_cents(frequencies, times, confidence)
+
+    def _quantize_midi_cents(self, frequencies: np.ndarray, times: np.ndarray, confidence: np.ndarray,
+                            sample_rate_hz: int = 25) -> Dict[str, Any]:
+        """Quantize to MIDI note + cents at fixed sample rate."""
+        # Resample to target rate
+        target_times = np.arange(0, times[-1], 1.0 / sample_rate_hz)
+        resampled_freqs = np.interp(target_times, times, frequencies)
+        resampled_conf = np.interp(target_times, times, confidence)
+
+        quant_data = []
+        for freq, conf in zip(resampled_freqs, resampled_conf):
+            if freq > 0 and conf > 0.3:  # Confidence threshold
+                midi_note = librosa.hz_to_midi(freq)
+                note = int(np.round(midi_note))
+                cents = int(np.round((midi_note - note) * 100))
+                # Clamp values
+                note = int(np.clip(note, 0, 127))
+                cents = int(np.clip(cents, -50, 50))
+                quant_data.append([note, cents])
+            else:
+                quant_data.append([0, 0])  # Silence
+
+        return {
+            "quantization_type": "midi_cents",
+            "sample_rate_hz": sample_rate_hz,
+            "quant_data": quant_data
+        }
+
+    def _quantize_note_only_rle(self, frequencies: np.ndarray, times: np.ndarray, confidence: np.ndarray) -> Dict[str, Any]:
+        """Run-length encode MIDI notes only."""
+        quant_data = []
+        current_note = None
+        start_time = 0
+
+        for i, (freq, conf, time) in enumerate(zip(frequencies, confidence, times)):
+            if freq > 0 and conf > 0.3:
+                midi_note = int(np.round(librosa.hz_to_midi(freq)))
+                midi_note = int(np.clip(midi_note, 0, 127))
+            else:
+                midi_note = 0  # Silence
+
+            if midi_note != current_note:
+                if current_note is not None:
+                    duration_ms = int((time - start_time) * 1000)
+                    if duration_ms > 0:
+                        quant_data.append([current_note, duration_ms])
+                current_note = midi_note
+                start_time = time
+
+        # Add final segment
+        if current_note is not None:
+            duration_ms = int((times[-1] - start_time) * 1000)
+            if duration_ms > 0:
+                quant_data.append([current_note, duration_ms])
+
+        return {
+            "quantization_type": "note_only_rle",
+            "quant_data": quant_data
+        }
+
+    def _quantize_segments(self, frequencies: np.ndarray, times: np.ndarray, confidence: np.ndarray) -> Dict[str, Any]:
+        """Create time-based pitch segments."""
+        quant_data = []
+        current_note = None
+        current_cents = None
+        segment_start = 0
+
+        for i, (freq, conf, time) in enumerate(zip(frequencies, confidence, times)):
+            if freq > 0 and conf > 0.3:
+                midi_val = librosa.hz_to_midi(freq)
+                note = int(np.round(midi_val))
+                cents = int(np.round((midi_val - note) * 100))
+                note = int(np.clip(note, 0, 127))
+                cents = int(np.clip(cents, -50, 50))
+            else:
+                note = 0
+                cents = 0
+
+            # Check if pitch changed significantly
+            if note != current_note or (current_cents is not None and abs(cents - current_cents) > 10):
+                if current_note is not None:
+                    # Save previous segment
+                    segment = {
+                        "t": int(segment_start * 1000),  # ms
+                        "d": int((time - segment_start) * 1000),  # ms
+                        "n": current_note,
+                        "c": current_cents
+                    }
+                    if segment["d"] > 0:
+                        quant_data.append(segment)
+
+                current_note = note
+                current_cents = cents
+                segment_start = time
+
+        # Add final segment
+        if current_note is not None:
+            segment = {
+                "t": int(segment_start * 1000),
+                "d": int((times[-1] - segment_start) * 1000),
+                "n": current_note,
+                "c": current_cents
+            }
+            if segment["d"] > 0:
+                quant_data.append(segment)
+
+        return {
+            "quantization_type": "segments",
+            "quant_data": quant_data
+        }
+
+    def _quantize_delta_encoded(self, frequencies: np.ndarray, times: np.ndarray, confidence: np.ndarray,
+                               sample_rate_hz: int = 25) -> Dict[str, Any]:
+        """Delta encode pitch changes from initial value."""
+        # Resample first
+        target_times = np.arange(0, times[-1], 1.0 / sample_rate_hz)
+        resampled_freqs = np.interp(target_times, times, frequencies)
+        resampled_conf = np.interp(target_times, times, confidence)
+
+        # Find first valid pitch
+        initial_note = 60  # Default to middle C
+        initial_cents = 0
+        for freq, conf in zip(resampled_freqs, resampled_conf):
+            if freq > 0 and conf > 0.3:
+                midi_val = librosa.hz_to_midi(freq)
+                initial_note = int(np.round(midi_val))
+                initial_cents = int(np.round((midi_val - initial_note) * 100))
+                initial_note = int(np.clip(initial_note, 0, 127))
+                initial_cents = int(np.clip(initial_cents, -50, 50))
+                break
+
+        # Calculate deltas in semitones
+        deltas = []
+        prev_note = initial_note + initial_cents / 100.0
+
+        for freq, conf in zip(resampled_freqs, resampled_conf):
+            if freq > 0 and conf > 0.3:
+                midi_val = librosa.hz_to_midi(freq)
+            else:
+                midi_val = 0
+
+            delta = int(np.round(midi_val - prev_note))
+            deltas.append(delta)
+
+            if midi_val > 0:
+                prev_note = midi_val
+
+        return {
+            "quantization_type": "delta_encoded",
+            "sample_rate_hz": sample_rate_hz,
+            "quant_data": {
+                "initial": [initial_note, initial_cents],
+                "deltas": deltas
+            }
+        }
+
     def _extract_f0_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract F0 using librosa pyin."""
         f0, voiced_flag, voiced_probs = librosa.pyin(

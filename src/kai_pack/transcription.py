@@ -47,13 +47,17 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
         audio_mono = audio_mono.astype(np.float32)
         
         # Transcribe chunk with word timestamps
-        result = model.transcribe(
-            audio_mono,
-            word_timestamps=True,
-            language="en",  # Force English
-            task="transcribe",
-            verbose=False
-        )
+        # Build transcription parameters
+        transcribe_params = {
+            "word_timestamps": True,
+            "language": "en",  # Force English
+            "task": "transcribe",
+            "verbose": False,
+            "condition_on_previous_text": False  # Reduces repetition loops in singing
+        }
+
+        # Note: initial_prompt not used in parallel workers as it can bias individual chunks
+        result = model.transcribe(audio_mono, **transcribe_params)
         
         # Add timing offset to all timestamps
         start_offset = chunk['start_time']
@@ -84,8 +88,13 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
 
 
 class LyricsTranscriber:
-    """Handles automatic lyrics transcription and alignment using Whisper."""
-    
+    """Handles automatic lyrics transcription and alignment using Whisper.
+
+    Note: Uses permissive transcription settings to avoid missing lyrics:
+    - no_speech_threshold=0.3 (changed from default 0.6): Catches more potential speech/singing
+    - condition_on_previous_text=False: Avoids context bias and repetition loops in singing
+    """
+
     def __init__(self, sample_rate: int = 44100, model_name: str = "base", language: str = "en", device: Optional[str] = None, use_crepe_filter: bool = False, silence_threshold: int = -20):
         self.sample_rate = sample_rate
         self.model_name = model_name
@@ -361,8 +370,8 @@ class LyricsTranscriber:
                 'method': 'crepe_error'
             }
             
-    def transcribe_and_align(self, vocals_audio: np.ndarray, use_chunking: bool = False, 
-                          max_workers: Optional[int] = None) -> Dict[str, Any]:
+    def transcribe_and_align(self, vocals_audio: np.ndarray, use_chunking: bool = False,
+                          max_workers: Optional[int] = None, initial_prompt: Optional[str] = None) -> Dict[str, Any]:
         """
         Automatically transcribe lyrics from vocal audio with optional smart chunking.
         
@@ -381,7 +390,7 @@ class LyricsTranscriber:
         
         if not use_chunking:
             # Fallback to full audio approach (better for coherent lyrics)
-            return self._transcribe_full_audio(vocals_audio)
+            return self._transcribe_full_audio(vocals_audio, initial_prompt)
         
         # Step 1: Detect silence boundaries for smart chunking
         logger.info(f"→ Analyzing vocals for silence boundaries (threshold: {self.silence_threshold} dB)...")
@@ -393,7 +402,7 @@ class LyricsTranscriber:
         
         if len(chunks) == 0:
             logger.warning("No audio chunks created, falling back to full audio transcription")
-            return self._transcribe_full_audio(vocals_audio)
+            return self._transcribe_full_audio(vocals_audio, initial_prompt)
         
         # Step 3: Filter chunks using CREPE vocal quality analysis (if enabled)
         logger.info("=" * 60)
@@ -544,7 +553,7 @@ class LyricsTranscriber:
             }
         }
     
-    def _transcribe_full_audio(self, vocals_audio: np.ndarray) -> Dict[str, Any]:
+    def _transcribe_full_audio(self, vocals_audio: np.ndarray, initial_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Fallback method: transcribe full audio without chunking."""
         logger.info("Using full audio transcription (no chunking)")
         
@@ -568,25 +577,51 @@ class LyricsTranscriber:
         
         try:
             # Let Whisper handle the audio loading and preprocessing directly
-            result = self.model.transcribe(
-                temp_vocals_path,
-                word_timestamps=True,
-                language=None if self.language == "auto" else self.language,
-                task="transcribe",
-                verbose=False
-            )
+            # Build transcription parameters
+            transcribe_params = {
+                "word_timestamps": True,
+                "language": None if self.language == "auto" else self.language,
+                "task": "transcribe",
+                "verbose": False,
+                "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
+                "condition_on_previous_text": False  # Reduces repetition loops in singing
+            }
+
+            # Add initial prompt if provided, but be careful with language consistency
+            if initial_prompt:
+                # For non-auto language detection, prefix prompt to reinforce language
+                if self.language != "auto":
+                    # Reinforce the target language in the prompt to prevent confusion
+                    transcribe_params["initial_prompt"] = f"This is a {self.language} song. {initial_prompt}"
+                else:
+                    transcribe_params["initial_prompt"] = initial_prompt
+
+            result = self.model.transcribe(temp_vocals_path, **transcribe_params)
         except Exception as e:
             logger.error(f"Whisper transcription failed: {e}")
             # Fallback: try without word timestamps
             try:
                 logger.warning("Retrying transcription without word timestamps")
-                result = self.model.transcribe(
-                    temp_vocals_path,
-                    word_timestamps=False,
-                    language=None if self.language == "auto" else self.language,
-                    task="transcribe",
-                    verbose=False
-                )
+                # Build fallback transcription parameters
+                fallback_params = {
+                    "word_timestamps": False,
+                    "language": None if self.language == "auto" else self.language,
+                    "task": "transcribe",
+                    "verbose": False,
+                    "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
+                    "condition_on_previous_text": False  # Reduces repetition loops in singing
+                }
+
+                # Add initial prompt if provided, but be careful with language consistency
+                if initial_prompt:
+                    # For non-auto language detection, prefix prompt to reinforce language
+                    if self.language != "auto":
+                        # Reinforce the target language in the prompt to prevent confusion
+                        fallback_params["initial_prompt"] = f"This is a {self.language} song. {initial_prompt}"
+                    else:
+                        fallback_params["initial_prompt"] = initial_prompt
+
+                result = self.model.transcribe(temp_vocals_path, **fallback_params)
             except Exception as e2:
                 raise RuntimeError(f"Whisper transcription failed completely: {e2}")
         
@@ -615,13 +650,18 @@ class LyricsTranscriber:
             audio_mono = audio_mono.astype(np.float32)
             
             # Transcribe chunk with word timestamps
-            result = self.model.transcribe(
-                audio_mono,
-                word_timestamps=True,
-                language=None if self.language == "auto" else self.language,
-                task="transcribe",
-                verbose=False
-            )
+            # Build transcription parameters
+            transcribe_params = {
+                "word_timestamps": True,
+                "language": None if self.language == "auto" else self.language,
+                "task": "transcribe",
+                "verbose": False,
+                "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
+                "condition_on_previous_text": False  # Reduces repetition loops in singing
+            }
+
+            # Note: initial_prompt not used in chunking as it can bias individual chunks
+            result = self.model.transcribe(audio_mono, **transcribe_params)
             
             # Add timing offset to all timestamps
             start_offset = chunk['start_time']

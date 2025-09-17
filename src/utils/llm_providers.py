@@ -33,6 +33,10 @@ class OpenAIProvider(LLMProvider):
             raise ImportError("openai package required. Run: pip install openai")
     
     def complete_chat(self, messages: list, model: str = "gpt-4o", temperature: float = 0.1) -> str:
+        # GPT-5 models only support default temperature of 1.0
+        if model.startswith("gpt-5"):
+            temperature = 1.0
+
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -234,10 +238,10 @@ VALID_PROVIDERS = ["openai", "lmstudio", "anthropic", "gemini", "openai-compatib
 
 # Default model mappings for each provider
 DEFAULT_MODELS = {
-    "openai": "gpt-4o",
+    "openai": "gpt-4o",  # Fast and reliable for lyrics correction
     "lmstudio": "local-model",
     "anthropic": "claude-3-5-sonnet-20241022",
-    "gemini": "gemini-2.0-flash-exp",
+    "gemini": "gemini-2.5-flash",  # Latest fast text generation model
     "openai-compatible": "llama-3.1-8b-instruct"  # Example
 }
 

@@ -40,16 +40,16 @@ def setup_logging(verbose: bool) -> None:
 @click.option("--vocals-bitrate", default=None, help="MP3 bitrate for vocals (defaults to same as --stem-bitrate)")
 @click.option("--four-stems", is_flag=True, help="Use 4-stem separation instead of default 2-stem (vocals + music)")
 @click.option("--no-analysis", "--skip-features", is_flag=True, help="Skip features/ (faster)")
-@click.option("--features", default="f0,notes,tempo,keys,chords,onsets,mfcc",
-              help="Comma-separated list of features to extract")
+@click.option("--features", default="f0,tempo",
+              help="Comma-separated list of features to extract (default: f0,tempo)")
 @click.option("--id3-raw/--no-id3-raw", default=True,
               help="Include raw ID3 frames in meta section (default: true)")
 @click.option("--title", help="Override title from ID3")
 @click.option("--artist", help="Override artist from ID3")
 @click.option("--cover", type=click.Path(exists=True, path_type=Path),
               help="Optional cover art")
-@click.option("--whisper-model", default="small", 
-              type=click.Choice(["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"]),
+@click.option("--whisper-model", default="small",
+              type=click.Choice(["tiny", "base", "small", "medium", "large", "large-v2", "large-v3", "large-v3-turbo"]),
               help="Whisper model for lyrics transcription (default: small for good speed/accuracy balance)")
 @click.option("--language", default="en", help="Language code for transcription (e.g., 'en', 'es', 'fr', 'de', 'ja') or 'auto' for auto-detection")
 @click.option("--fix-lyrics", is_flag=True, help="Automatically fix lyrics using LLM after processing")
@@ -59,6 +59,7 @@ def setup_logging(verbose: bool) -> None:
 @click.option("--llm-api-key", help="API key (overrides environment variables)")
 @click.option("--crepe-filter", is_flag=True, help="Enable CREPE filtering to skip non-vocal chunks (default: disabled, recommended for extreme vocals)")
 @click.option("--silence-threshold", default=-20, help="Silence threshold in dB for chunk detection (default: -20, lower values = more sensitive)")
+@click.option("--vocal-pitch-type", default="midi_cents", type=click.Choice(["midi_cents", "note_only_rle", "segments", "delta_encoded"]), help="Vocal pitch quantization type (default: midi_cents)")
 @click.option("--verbose", is_flag=True, help="Verbose logging")
 def main(
     input_audio: Path,
@@ -86,6 +87,7 @@ def main(
     llm_api_key: Optional[str],
     crepe_filter: bool,
     silence_threshold: int,
+    vocal_pitch_type: str,
     verbose: bool,
 ) -> None:
     """Convert INPUT_AUDIO to a .kai karaoke file with AI-generated lyrics."""
@@ -124,6 +126,7 @@ def main(
             language=language,
             use_crepe_filter=crepe_filter,
             silence_threshold=silence_threshold,
+            vocal_pitch_type=vocal_pitch_type,
             verbose=verbose
         )
         
@@ -155,7 +158,25 @@ def main(
             logger.info(f"Auto-fixing lyrics using LLM provider: {llm_provider}")
             try:
                 import subprocess
-                
+                import tempfile
+                import os
+
+                # Check for LRCLIB temp file from processor
+                lyrics_temp_file = None
+                temp_info_file = os.path.join(tempfile.gettempdir(), f"lrclib_lyrics_path_{os.getpid()}.txt")
+                if os.path.exists(temp_info_file):
+                    try:
+                        with open(temp_info_file, 'r') as f:
+                            lyrics_temp_file = f.read().strip()
+                        os.unlink(temp_info_file)  # Clean up info file
+                        if lyrics_temp_file and os.path.exists(lyrics_temp_file):
+                            logger.info("Using LRCLIB reference lyrics for correction")
+                        else:
+                            lyrics_temp_file = None
+                    except Exception as e:
+                        logger.warning(f"Failed to read LRCLIB temp file info: {e}")
+                        lyrics_temp_file = None
+
                 # Build command for fix_lyrics.py with LLM provider options
                 fix_script = Path(__file__).parent.parent / "utils" / "fix_lyrics.py"
                 cmd = [
@@ -164,6 +185,12 @@ def main(
                     "--output", str(output),  # Output to same file (replace original)
                     "--llm-provider", llm_provider
                 ]
+
+                # Add LRCLIB lyrics if available
+                if lyrics_temp_file:
+                    cmd.extend(["--lyrics-source", lyrics_temp_file])
+                else:
+                    logger.info("No LRCLIB lyrics found, will auto-fetch from web")
                 
                 # Add optional parameters if provided
                 if llm_model:
@@ -179,9 +206,23 @@ def main(
                     logger.info(f"✓ Lyrics automatically fixed using {llm_provider}")
                 else:
                     logger.error("Lyrics fixing failed - see errors above")
-                        
+
+                # Clean up LRCLIB temp file
+                if lyrics_temp_file and os.path.exists(lyrics_temp_file):
+                    try:
+                        os.unlink(lyrics_temp_file)
+                        logger.debug("Cleaned up LRCLIB temp file")
+                    except Exception:
+                        pass  # Ignore cleanup errors
+
             except Exception as fix_error:
                 logger.error(f"Failed to auto-fix lyrics: {fix_error}")
+                # Clean up temp file on error too
+                if 'lyrics_temp_file' in locals() and lyrics_temp_file and os.path.exists(lyrics_temp_file):
+                    try:
+                        os.unlink(lyrics_temp_file)
+                    except Exception:
+                        pass
         
     except Exception as e:
         logger.error(f"Processing failed: {str(e)}")

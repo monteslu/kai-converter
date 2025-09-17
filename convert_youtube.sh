@@ -22,9 +22,12 @@ show_usage() {
     echo "                         Use 'auto' for mixed-language songs"
     echo "                         Examples: en, es, fr, de, ja, zh, ko, pt"
     echo "  --four-stems           Use 4-stem separation instead of default 2-stem"
-    echo "  --fix-lyrics           Automatically fix lyrics using OpenAI after processing"
+    echo "  --fix-lyrics           Automatically fix lyrics using LLM after processing
+  --llm-provider PROV    LLM provider: openai, lmstudio, anthropic, gemini (default: auto)"
     echo "  --crepe-filter         Enable CREPE filtering to skip non-vocal chunks (default: disabled)"
     echo "  --silence-threshold DB Silence threshold in dB for chunk detection (default: -20)"
+    echo "  --vocal-pitch-type TYPE Vocal pitch quantization (default: midi_cents)"
+    echo "                         Options: midi_cents, note_only_rle, segments, delta_encoded"
     echo "  --remove-mp3           Remove the intermediate MP3 file after conversion (default: keep)"
     echo "  --mp3-quality QUALITY  Audio quality (0=best, 9=worst, default: 0)"
     echo "  --verbose              Enable verbose logging"
@@ -34,14 +37,15 @@ show_usage() {
     echo "  $0 --title \"Bohemian Rhapsody\" --artist \"Queen\" 'https://youtube.com/watch?v=...'"
     echo "  $0 --title \"La Bamba\" --artist \"Ritchie Valens\" --language es 'URL'"
     echo "  $0 --title \"Song\" --artist \"Artist\" --language auto --whisper-model large 'URL'"
-    echo "  $0 --title \"My Song\" --artist \"My Artist\" --four-stems 'URL' output.kai"
+    echo "  $0 --title \"My Song\" --artist \"My Artist\" --four-stems 'URL' output.kai
+  $0 --title \"Song\" --artist \"Artist\" --fix-lyrics --llm-provider gemini 'URL'"
     echo "  $0 --title \"Extreme Song\" --artist \"Metal Band\" --silence-threshold -10 'URL'"
     echo ""
     echo "Requirements:"
     echo "  - yt-dlp (install with: pip install yt-dlp)"
     echo "  - ffmpeg"
     echo "  - All kai_pack.sh requirements"
-    echo "  - For --fix-lyrics: OPENAI_API_KEY environment variable"
+    echo "  - For --fix-lyrics: API key for selected provider (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)"
     exit 1
 }
 
@@ -54,6 +58,7 @@ WHISPER_MODEL=""
 LANGUAGE=""
 FOUR_STEMS=""
 FIX_LYRICS=""
+LLM_PROVIDER=""
 KEEP_MP3=true  # Default to keeping MP3 files
 MP3_QUALITY="0"
 VERBOSE=""
@@ -89,12 +94,20 @@ while [[ $# -gt 0 ]]; do
             FIX_LYRICS="--fix-lyrics"
             shift
             ;;
+        --llm-provider)
+            LLM_PROVIDER="--llm-provider $2"
+            shift 2
+            ;;
         --crepe-filter)
             EXTRA_ARGS="$EXTRA_ARGS --crepe-filter"
             shift
             ;;
         --silence-threshold)
             EXTRA_ARGS="$EXTRA_ARGS --silence-threshold $2"
+            shift 2
+            ;;
+        --vocal-pitch-type)
+            EXTRA_ARGS="$EXTRA_ARGS --vocal-pitch-type $2"
             shift 2
             ;;
         --remove-mp3)
@@ -290,6 +303,7 @@ KAI_PACK_CMD="$KAI_PACK_CMD $WHISPER_MODEL"
 KAI_PACK_CMD="$KAI_PACK_CMD $LANGUAGE"
 KAI_PACK_CMD="$KAI_PACK_CMD $FOUR_STEMS"
 KAI_PACK_CMD="$KAI_PACK_CMD $FIX_LYRICS"
+KAI_PACK_CMD="$KAI_PACK_CMD $LLM_PROVIDER"
 KAI_PACK_CMD="$KAI_PACK_CMD $VERBOSE"
 KAI_PACK_CMD="$KAI_PACK_CMD $EXTRA_ARGS"
 KAI_PACK_CMD="$KAI_PACK_CMD --output \"$OUTPUT_FILE\" \"$MP3_FILE\""

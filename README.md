@@ -183,6 +183,25 @@ export OPENAI_API_KEY="your-key"
 # View lyrics from KAI file
 ./log_kai_lyrics.sh song.kai
 
+### 3. Regenerate Song.json (Optional)
+
+```bash
+# Regenerate transcription/analysis while keeping existing stems
+./regen_song_json.sh song.kai
+
+# Use better Whisper model for improved transcription
+./regen_song_json.sh --whisper-model large-v3 song.kai
+
+# Regenerate with different language and auto-fix lyrics
+./regen_song_json.sh --language es --fix-lyrics --llm-provider openai song.kai
+
+# Custom features and output to new file
+./regen_song_json.sh --features "f0,tempo,chords" song.kai song_v2.kai
+```
+
+### 4. Fix Lyrics (Optional)
+
+```bash
 # Fix lyrics manually (auto-fetch)
 export OPENAI_API_KEY="your-key"
 ./fix_lyrics.sh song.kai
@@ -195,7 +214,7 @@ export OPENAI_API_KEY="your-key"
 
 # Use different LLM providers
 ./fix_lyrics.sh song.kai --llm-provider lmstudio      # Local LM Studio
-./fix_lyrics.sh song.kai --llm-provider anthropic     # Anthropic Claude  
+./fix_lyrics.sh song.kai --llm-provider anthropic     # Anthropic Claude
 ./fix_lyrics.sh song.kai --llm-provider gemini        # Google Gemini
 ./fix_lyrics.sh song.kai --llm-provider openai        # OpenAI (default)
 ```
@@ -346,7 +365,8 @@ KAI files are ZIP archives containing:
 kai-converter/
 ├── kai_pack.sh           # Convert audio to KAI
 ├── convert_youtube.sh     # Download YouTube and convert
-├── fix_lyrics.sh          # Fix lyrics with OpenAI  
+├── regen_song_json.sh     # Regenerate transcription/analysis
+├── fix_lyrics.sh          # Fix lyrics with LLM
 ├── log_kai_lyrics.sh      # View KAI file lyrics
 ├── make_movie.sh          # Create karaoke videos
 ├── src/                   # Python source code

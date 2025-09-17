@@ -69,6 +69,10 @@ class SongJsonGenerator:
             "singers": self._build_singers_section(),
             "lines": alignment_data.get("lines", [])
         }
+
+        # Add vocal_pitch if available in analysis features
+        if analysis_features and "vocal_pitch" in analysis_features:
+            song_json["vocal_pitch"] = analysis_features["vocal_pitch"]
         
         # Add optional meta section if requested
         if include_meta and processing_info:

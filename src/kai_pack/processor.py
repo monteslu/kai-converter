@@ -16,6 +16,7 @@ from .metadata import MetadataExtractor
 from .analysis import MusicalAnalyzer
 from .song_json import SongJsonGenerator
 from .packaging import KaiPackager
+from utils.lyrics_utils import prepare_whisper_context, save_lyrics_temp_info
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ class KaiProcessor:
         language: str = "en",
         use_crepe_filter: bool = False,
         silence_threshold: int = -20,
+        vocal_pitch_type: str = "midi_cents",
         verbose: bool = False
     ):
         self.sample_rate = sample_rate
@@ -59,7 +61,7 @@ class KaiProcessor:
             silence_threshold=silence_threshold
         )
         self.metadata_extractor = MetadataExtractor()
-        self.musical_analyzer = MusicalAnalyzer(sample_rate=sample_rate)
+        self.musical_analyzer = MusicalAnalyzer(sample_rate=sample_rate, vocal_pitch_type=vocal_pitch_type)
         self.song_json_generator = SongJsonGenerator()
         self.packager = KaiPackager()
         
@@ -197,10 +199,16 @@ class KaiProcessor:
                 
                 logger.info(f"Whisper model: {self.lyrics_transcriber.model_name}")
                 logger.info(f"Vocals audio shape: {vocals_audio.shape}")
+
+                # Prepare Whisper context with LRCLIB vocabulary hints
+                title = metadata['song'].get('title', '')
+                artist = metadata['song'].get('artist', '')
+                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist)
+
                 logger.info("Starting smart chunking and transcription...")
-                    
+
                 start_step = datetime.utcnow()
-                alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio)
+                alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio, initial_prompt=initial_prompt)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
                 
                 logger.info(f"✓ Transcription completed:")
@@ -423,7 +431,12 @@ class KaiProcessor:
                 logger.info(f"Transcription: {len(alignment_data.get('lines', []))} lines, {len(alignment_data.get('words', []))} words")
                 logger.info(f"Confidence: {alignment_data.get('confidence', 0.0):.2f}")
                 logger.info("=" * 60)
-                
+
+                # Save lyrics temp file info for potential fix_lyrics usage
+                if lyrics_temp_file:
+                    logger.info(f"Reference lyrics available for fix_lyrics: {lyrics_temp_file}")
+                    save_lyrics_temp_info(lyrics_temp_file)
+
                 return results
                 
             except Exception as e:
