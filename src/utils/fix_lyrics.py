@@ -111,7 +111,95 @@ def load_correct_lyrics(lyrics_source):
         with open(lyrics_source, 'r', encoding='utf-8') as f:
             return f.read()
 
-def create_prompt(transcribed_lines, correct_lyrics):
+def extract_pitch_contour(vocal_pitch_data, duration=None, segment_ms=1000):
+    """Extract simplified pitch contour from vocal_pitch data.
+
+    Args:
+        vocal_pitch_data: Dict with 'quant_data', 'sample_rate_hz', etc.
+        duration: Song duration in seconds (for better formatting)
+        segment_ms: Segment size in milliseconds (default 1000 = 1 second)
+
+    Returns:
+        String representation of pitch contour
+    """
+    if not vocal_pitch_data or 'quant_data' not in vocal_pitch_data:
+        return None
+
+    quant_data = vocal_pitch_data['quant_data']
+    sample_rate = vocal_pitch_data.get('sample_rate_hz', 25)
+
+    # Calculate samples per segment (convert ms to seconds)
+    segment_size_sec = segment_ms / 1000.0
+    samples_per_segment = int(sample_rate * segment_size_sec)
+
+    # MIDI note to note name conversion
+    note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+    contour_lines = []
+
+    for seg_idx in range(0, len(quant_data), samples_per_segment):
+        seg_start = seg_idx / sample_rate
+        seg_end = min((seg_idx + samples_per_segment) / sample_rate, duration or float('inf'))
+
+        # Format timing based on segment size for readability
+        if segment_ms < 1000:
+            # Show as 0.5s, 1.0s, 1.5s for sub-second resolution
+            time_format = f"{seg_start:.1f}-{seg_end:.1f}s"
+        else:
+            # Show as 0-1s, 1-2s for second+ resolution
+            time_format = f"{seg_start:.0f}-{seg_end:.0f}s"
+
+        # Get segment data
+        segment = quant_data[seg_idx:seg_idx + samples_per_segment]
+
+        # Extract non-zero pitches
+        pitches = [v[0] for v in segment if v[0] > 0]
+
+        if not pitches:
+            contour_lines.append(f"{time_format}: silence")
+        else:
+            # Calculate pitch statistics
+            min_pitch = min(pitches)
+            max_pitch = max(pitches)
+
+            # Convert to note names
+            min_note = note_names[min_pitch % 12] + str(min_pitch // 12)
+            max_note = note_names[max_pitch % 12] + str(max_pitch // 12)
+
+            # Determine movement pattern
+            if len(pitches) >= 2:
+                first_third = pitches[:len(pitches)//3] if len(pitches) > 3 else [pitches[0]]
+                last_third = pitches[-len(pitches)//3:] if len(pitches) > 3 else [pitches[-1]]
+
+                avg_first = sum(first_third) / len(first_third)
+                avg_last = sum(last_third) / len(last_third)
+
+                if avg_last > avg_first + 2:
+                    movement = "rising"
+                elif avg_last < avg_first - 2:
+                    movement = "falling"
+                else:
+                    movement = "steady"
+            else:
+                movement = "brief"
+
+            # Determine intensity based on range
+            pitch_range = max_pitch - min_pitch
+            if pitch_range > 12:  # More than an octave
+                intensity = "/dramatic"
+            elif pitch_range < 3:
+                intensity = "/narrow"
+            else:
+                intensity = ""
+
+            if min_note == max_note:
+                contour_lines.append(f"{time_format}: {min_note} monotone")
+            else:
+                contour_lines.append(f"{time_format}: {min_note}-{max_note} {movement}{intensity}")
+
+    return "\n".join(contour_lines)
+
+def create_prompt(transcribed_lines, correct_lyrics, song_data=None):
     """Create prompt for LLM to fix lyrics."""
     # Simplify to just line text and timing
     simple_lines = []
@@ -123,10 +211,28 @@ def create_prompt(transcribed_lines, correct_lyrics):
             "text": line.get('text', '')
         })
     
+    # Build initial prompt
     prompt = f"""TRANSCRIPTION ERROR CORRECTION TASK - READ ALL INSTRUCTIONS CAREFULLY
 
 YOUR TASK: Fix ONLY obvious transcription errors. DO NOT REWRITE LYRICS.
+"""
 
+    # Add vocal pitch contour if available
+    if song_data and 'vocal_pitch' in song_data:
+        duration = song_data.get('song', {}).get('duration_sec')
+        segment_ms = 1000  # Default 1-second segments, could be made configurable
+        pitch_contour = extract_pitch_contour(song_data['vocal_pitch'], duration, segment_ms)
+        if pitch_contour:
+            segment_desc = f"{segment_ms}ms" if segment_ms < 1000 else f"{segment_ms//1000}-second"
+            prompt += f"""
+VOCAL PITCH CONTOUR ({segment_desc} segments):
+{pitch_contour}
+
+Key: narrow=<3 semitones, dramatic=>12 semitones (octave+)
+This shows vocal activity and delivery patterns. Use for identifying gaps where vocals exist but no transcription.
+"""
+
+    prompt += f"""
 REFERENCE LYRICS (FOR CONTEXT ONLY - DO NOT COPY FROM THIS):
 {correct_lyrics}
 
@@ -176,24 +282,45 @@ Before suggesting ANY correction:
 REMEMBER: YOU ARE NOT A LYRIC EDITOR. YOU ARE A TRANSCRIPTION ERROR FIXER.
 Your job is to fix obvious mishearings, not to make lyrics match the reference perfectly.
 
-Return format (MUST BE VALID JSON): 
+Return format (MUST BE VALID JSON):
 {{
   "corrections": [{{"line_num": 1, "old_text": "original", "new_text": "corrected"}}, ...],
+  "missing_lines": [
+    {{
+      "suggested_text": "Text of missing line based on reference and pitch activity",
+      "start": 15.5,
+      "end": 19.5,
+      "confidence": "high|medium|low",
+      "reason": "Why this line is likely missing (e.g., 'Vocals detected but no transcription', 'Gap in timing matches chorus in reference')"
+    }}
+  ],
   "description": "Brief factual description of the song if you can identify it from the lyrics, or null if unknown"
 }}
 
+IMPORTANT ABOUT MISSING LINES:
+- ONLY suggest missing lines if you have strong evidence from:
+  1. The vocal pitch contour showing activity where there's no transcription
+  2. The reference lyrics having content that clearly fits in gaps
+  3. Large timing gaps between transcribed lines (>4 seconds)
+- Set confidence based on evidence strength:
+  - "high": Pitch shows vocals AND reference has matching text for this timing
+  - "medium": Either pitch activity OR reference suggests missing content
+  - "low": Just a timing gap that might have content
+- DO NOT invent lyrics - only use what's in the reference
+
 CRITICAL: Only include lines that actually need correction in the corrections array.
+CRITICAL: Only suggest missing lines where you have evidence from pitch/reference/timing.
 CRITICAL: Return ONLY valid JSON, no explanations, no markdown blocks, no additional text.
 
 JSON OUTPUT:"""
     
     return prompt
 
-def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10):
+def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10, song_data=None):
     """Process lyrics in smaller chunks to avoid token limits"""
     if len(transcribed_lines) <= chunk_size:
         # Small enough to process in one go
-        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config)
+        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config, song_data=song_data)
     
     print(f"Processing {len(transcribed_lines)} lines in chunks of {chunk_size}...")
     
@@ -209,12 +336,13 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_co
         for j, line in enumerate(chunk):
             print(f"  Line {i+j+1}: {line.get('text', '')[:50]}...")
         
-        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config)
-        if correction_result and len(correction_result) == 2:
-            corrected_chunk, chunk_rejections = correction_result
+        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config, song_data=song_data)
+        if correction_result and len(correction_result) == 3:
+            corrected_chunk, chunk_rejections, chunk_missing = correction_result
             if corrected_chunk is not None:
                 corrected_lines.extend(corrected_chunk)
                 all_rejections.extend(chunk_rejections)
+                # Note: We don't aggregate missing lines from chunks - they're per-song level
             else:
                 # If correction fails, keep original
                 print(f"  WARNING: Chunk correction returned None, keeping original")
@@ -224,9 +352,9 @@ def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_co
             print(f"  WARNING: Chunk correction failed, keeping original")
             corrected_lines.extend(chunk)
     
-    return corrected_lines, all_rejections
+    return corrected_lines, all_rejections, []
 
-def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None):
+def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, song_data=None):
     """Send to LLM API to fix lyrics."""
     try:
         import sys
@@ -280,7 +408,7 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
             provider_type = 'openai'
             model = 'gpt-4o'
         
-        prompt = create_prompt(transcribed_lines, correct_lyrics)
+        prompt = create_prompt(transcribed_lines, correct_lyrics, song_data)
         
         # Log the transcribed lines being sent
         print(f"=== TRANSCRIBED LINES BEING SENT TO {provider_type.upper()} ===")
@@ -338,10 +466,12 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
             if isinstance(response_data, list):
                 # Old format - just corrections
                 corrections = response_data
+                missing_lines = []
                 description = None
             else:
                 # New format - dict with corrections and description
                 corrections = response_data.get('corrections', [])
+                missing_lines = response_data.get('missing_lines', [])
                 description = response_data.get('description')
             
             # Apply corrections back to full lines
@@ -362,6 +492,20 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
                 print(f"  OLD: '{correction.get('old_text', '')}'")
                 print(f"  NEW: '{correction.get('new_text', '')}'")
             print("=" * 40)
+
+            # Show missing lines suggestions if any
+            if missing_lines:
+                print(f"=== MISSING LINES SUGGESTED BY {provider_type.upper()} ===")
+                for i, suggestion in enumerate(missing_lines):
+                    start = suggestion.get('start', 0)
+                    end = suggestion.get('end', 0)
+                    text = suggestion.get('suggested_text', '')
+                    confidence = suggestion.get('confidence', 'unknown')
+                    reason = suggestion.get('reason', 'No reason given')
+                    print(f"Suggestion {i+1}: [{start:.1f}s - {end:.1f}s] ({confidence} confidence)")
+                    print(f"  Text: \"{text}\"")
+                    print(f"  Reason: {reason}")
+                print("=" * 40)
             
             for correction in corrections:
                 line_num = correction.get('line_num', 0)
@@ -392,12 +536,13 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
                             
                             # Track this rejection
                             rejections.append({
-                                "line_num": line_num,
-                                "old_text": original_text,
-                                "new_text": new_text,
+                                "line": line_num,
+                                "start": original_line.get('start', 0),
+                                "end": original_line.get('end', 0),
+                                "old": original_text,
+                                "new": new_text,
                                 "reason": "word_retention",
-                                "retention_rate": round(retention_rate, 3),
-                                "min_required": min_retention
+                                "word_retention": round(retention_rate, 3)
                             })
                             continue
                         if new_text and new_text != original_text:
@@ -431,10 +576,11 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
                         
                         # Track this rejection
                         rejections.append({
-                            "line_num": line_num,
-                            "old_text": old_text,
-                            "actual_text": original_text,
-                            "new_text": new_text,
+                            "line": line_num,
+                            "start": original_line.get('start', 0),
+                            "end": original_line.get('end', 0),
+                            "old": old_text,
+                            "new": new_text,
                             "reason": "text_mismatch"
                         })
                 else:
@@ -442,18 +588,19 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
                     
                     # Track this rejection
                     rejections.append({
-                        "line_num": line_num,
-                        "old_text": old_text,
-                        "new_text": new_text,
-                        "reason": "invalid_line_number",
-                        "max_lines": len(corrected_lines)
+                        "line": line_num,
+                        "start": 0,
+                        "end": 0,
+                        "old": old_text,
+                        "new": new_text,
+                        "reason": "invalid_line_number"
                     })
             
             print(f"Applied {corrections_applied} corrections out of {len(corrections)} lines")
             if rejections:
                 print(f"Rejected {len(rejections)} corrections for manual review")
             
-            return corrected_lines, rejections
+            return corrected_lines, rejections, missing_lines
         except json.JSONDecodeError as e:
             print(f"JSON parsing error: {e}")
             print(f"Attempting to fix common issues...")
@@ -466,18 +613,18 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
             
             try:
                 corrected_lines = json.loads(response_text)
-                return corrected_lines
+                return corrected_lines, [], []
             except:
                 print("Could not parse JSON response.")
-                return None, []
+                return None, [], []
         
     except ImportError as e:
         print(f"Error importing LLM provider: {e}")
         print("Make sure to install required packages or check your configuration.")
-        return None, []
+        return None, [], []
     except Exception as e:
         print(f"Error calling LLM API: {e}")
-        return None, []
+        return None, [], []
 
 def update_kai_file(kai_path, output_path, corrected_lines, updated_song_data=None):
     """Update KAI file with corrected lyrics and optional song metadata."""
@@ -702,24 +849,32 @@ def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, ll
     
     # Use smaller chunks for local LM Studio due to context limits
     if llm_provider == 'lmstudio' and len(transcribed_lines) > 10:
-        result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8)
+        result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8, song_data=song_data)
     else:
-        result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config)
+        result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data)
     
-    if result and len(result) == 2:
-        corrected_lines, rejections = result
-        
+    if result and len(result) == 3:
+        corrected_lines, rejections, missing_lines_suggested = result
+
         # Check if corrected_lines is valid
         if corrected_lines is None:
             print("Failed to correct lyrics - no corrected lines returned")
             return
         
-        # Add rejections to song metadata if there are any
-        if rejections:
-            if 'song' not in song_data:
-                song_data['song'] = {}
-            song_data['song']['lyric_update_rejections'] = rejections
-            print(f"\n=== SAVED {len(rejections)} REJECTIONS TO SONG METADATA ===\n")
+        # Add rejections and missing lines to song metadata if there are any
+        if rejections or missing_lines_suggested:
+            if 'meta' not in song_data:
+                song_data['meta'] = {}
+            if 'corrections' not in song_data['meta']:
+                song_data['meta']['corrections'] = {}
+
+            if rejections:
+                song_data['meta']['corrections']['rejected'] = rejections
+                print(f"\n=== SAVED {len(rejections)} REJECTIONS TO SONG METADATA ===\n")
+
+            if missing_lines_suggested:
+                song_data['meta']['corrections']['missing_lines_suggested'] = missing_lines_suggested
+                print(f"\n=== SAVED {len(missing_lines_suggested)} MISSING LINE SUGGESTIONS TO SONG METADATA ===\n")
         # Show comparison
         print("\n--- Sample Corrections ---")
         for i in range(min(3, len(transcribed_lines))):

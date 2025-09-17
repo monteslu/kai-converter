@@ -82,16 +82,40 @@ def log_kai_lyrics(kai_file: str):
                 print("=" * 80)
                 for i, rejection in enumerate(rejected_corrections, 1):
                     line_num = rejection.get('line', 'Unknown')
+                    start = rejection.get('start', 0)
+                    end = rejection.get('end', 0)
                     reason = rejection.get('reason', 'No reason given')
                     old_text = rejection.get('old', 'N/A')
                     new_text = rejection.get('new', 'N/A')
                     retention = rejection.get('word_retention', 0.0)
 
-                    print(f"Rejection {i}: Line {line_num}")
+                    print(f"Rejection {i}: Line {line_num} [{start:.1f}s - {end:.1f}s]")
                     print(f"  Reason: {reason}")
                     print(f"  Word retention: {retention:.1%}")
                     print(f"  OLD: {old_text}")
                     print(f"  NEW: {new_text}")
+                    print()
+
+            # Check for missing lines suggestions
+            missing_lines = corrections.get('missing_lines_suggested', [])
+
+            if missing_lines:
+                print("=" * 80)
+                print("SUGGESTED MISSING LINES")
+                print("=" * 80)
+                for i, suggestion in enumerate(missing_lines, 1):
+                    start = suggestion.get('start', 0)
+                    end = suggestion.get('end', 0)
+                    text = suggestion.get('suggested_text', 'N/A')
+                    confidence = suggestion.get('confidence', 'unknown')
+                    reason = suggestion.get('reason', 'No reason given')
+                    pitch = suggestion.get('pitch_activity', 'N/A')
+
+                    print(f"Suggestion {i}: [{start:.1f}s - {end:.1f}s] ({end-start:.1f}s)")
+                    print(f"  Text: \"{text}\"")
+                    print(f"  Confidence: {confidence}")
+                    print(f"  Reason: {reason}")
+                    print(f"  Pitch activity: {pitch}")
                     print()
 
             print("=" * 80)

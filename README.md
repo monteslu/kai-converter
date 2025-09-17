@@ -177,13 +177,29 @@ export OPENAI_API_KEY="your-key"
   'https://youtu.be/...'
 ```
 
-### 3. View and Fix Lyrics
+### 3. Batch Process MP3 Files
+
+```bash
+# Process all MP3 files in a folder (skips existing KAI files)
+./batch_pack.sh /path/to/music/folder/
+
+# With options (passed to each file)
+./batch_pack.sh --language auto --fix-lyrics --llm-provider openai /music/albums/
+
+# See what would be processed without doing it
+./batch_pack.sh --dry-run /music/test/
+
+# High quality batch processing
+./batch_pack.sh --four-stems --whisper-model large-v3 --fix-lyrics /music/collection/
+```
+
+### 4. View and Fix Lyrics
 
 ```bash
 # View lyrics from KAI file
 ./log_kai_lyrics.sh song.kai
 
-### 3. Regenerate Song.json (Optional)
+### 5. Regenerate Song.json (Optional)
 
 ```bash
 # Regenerate transcription/analysis while keeping existing stems
@@ -199,7 +215,7 @@ export OPENAI_API_KEY="your-key"
 ./regen_song_json.sh --features "f0,tempo,chords" song.kai song_v2.kai
 ```
 
-### 4. Fix Lyrics (Optional)
+### 6. Fix Lyrics (Optional)
 
 ```bash
 # Fix lyrics manually (auto-fetch)

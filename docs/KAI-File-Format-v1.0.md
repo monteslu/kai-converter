@@ -146,6 +146,30 @@ All time values are seconds (float). Use UTF-8 and LF newlines.
       "alignment":  { "model": "kai-aligner-ctc-dtw", "version": "…" },
       "analysis":   { "f0": "crepe-tiny", "onsets": "madmom", "tempo": "madmom-tempo" }
     },
+    "corrections": {
+      "(optional)": true,
+      "rejected": [
+        {
+          "line": 1,
+          "start": 23.4,
+          "end": 27.0,
+          "reason": "word retention too low",
+          "old": "original transcribed text",
+          "new": "proposed correction",
+          "word_retention": 0.2
+        }
+      ],
+      "missing_lines_suggested": [
+        {
+          "suggested_text": "Line that was likely missed",
+          "start": 15.5,
+          "end": 19.5,
+          "confidence": "high",
+          "reason": "Vocals detected in pitch contour but no transcription",
+          "pitch_activity": "F4-A4 rising"
+        }
+      ]
+    },
     "hashes": {
       "(optional)": true,
       "vocals.mp3": { "sha256": "...", "bitrate_kbps": 128 },
