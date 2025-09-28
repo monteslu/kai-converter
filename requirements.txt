@@ -5,8 +5,9 @@ librosa>=0.10.0
 numpy>=1.21.0
 scipy>=1.7.0
 mutagen>=1.45.0
-madmom>=0.16.0
-essentia>=2.1b6.dev374
+# Optional packages (install separately if needed):
+# madmom>=0.16.0  # Better onset/beat detection (requires numpy pre-installed)
+# essentia>=2.1b6.dev374  # Better key detection (use dev234 for ARM64)
 crepe>=0.0.12
 dtw-python>=1.2.0
 phonemizer>=3.0.0

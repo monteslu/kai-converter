@@ -1,0 +1,10 @@
+# Optional requirements for enhanced audio analysis
+# These may fail on some systems but are not required for basic functionality
+
+# Better onset/beat detection (requires numpy to be installed first)
+madmom>=0.16.0
+
+# Better key detection
+# For x86_64: essentia>=2.1b6.dev374
+# For ARM64:  essentia>=2.1b6.dev234
+essentia>=2.1b6.dev234  # Using lower version for compatibility

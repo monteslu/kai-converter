@@ -68,18 +68,25 @@ source venv/bin/activate
 # IMPORTANT: Always activate the virtual environment before using kai-converter:
 # source venv/bin/activate
 
-# Install Cython first (required for madmom)
-pip install Cython
+# Option 1: Use the install script (recommended)
+./install.sh
 
-# Install core dependencies
+# Option 2: Manual installation
 pip install -r requirements.txt
 
-# Install madmom separately if it fails above
-pip install madmom --no-build-isolation
+# Optional: Install enhanced audio analysis packages
+# These may fail on some systems (especially ARM64) but are not required
+pip install numpy  # Install first if using madmom
+pip install -r requirements-optional.txt --no-build-isolation
 
 # For YouTube support
 pip install yt-dlp
 ```
+
+**Note for ARM64 systems (Jetson Nano, Raspberry Pi, etc.):**
+- Some optional packages (madmom, essentia) may have limited support
+- The core functionality works without them using librosa fallbacks
+- Use `./install.sh` which handles architecture detection automatically
 
 ### 4. Optional: LLM Providers for Lyrics Correction
 
