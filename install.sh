@@ -136,8 +136,13 @@ python3 -c "import torch; print(f'  ✓ PyTorch {torch.__version__}')" 2>/dev/nu
 python3 -c "import torchaudio; print(f'  ✓ torchaudio {torchaudio.__version__}')" 2>/dev/null || echo "  ✗ torchaudio"
 python3 -c "import demucs; print('  ✓ demucs')" 2>/dev/null || echo "  ✗ demucs"
 python3 -c "import librosa; print(f'  ✓ librosa {librosa.__version__}')" 2>/dev/null || echo "  ✗ librosa"
+python3 -c "import torchcrepe; print('  ✓ torchcrepe (GPU-capable pitch detection)')" 2>/dev/null || echo "  ✗ torchcrepe"
 python3 -c "import madmom; print('  ✓ madmom (enhanced audio analysis)')" 2>/dev/null || echo "  ⚠ madmom (using librosa fallback)"
 python3 -c "import essentia; print('  ✓ essentia (enhanced key detection)')" 2>/dev/null || echo "  ⚠ essentia (using librosa fallback)"
+
+# Check CUDA availability
+echo ""
+python3 -c "import torch; print('  GPU Support:', 'CUDA' if torch.cuda.is_available() else 'MPS' if torch.backends.mps.is_available() else 'CPU only')" 2>/dev/null
 
 echo ""
 echo "Installation complete!"

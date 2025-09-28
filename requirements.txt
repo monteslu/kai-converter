@@ -8,7 +8,8 @@ mutagen>=1.45.0
 # Optional packages (install separately if needed):
 # madmom>=0.16.0  # Better onset/beat detection (requires numpy pre-installed)
 # essentia>=2.1b6.dev374  # Better key detection (use dev234 for ARM64)
-crepe>=0.0.12
+torchcrepe>=0.0.12  # GPU-capable pitch detection (used in transcription)
+# crepe>=0.0.12  # CPU-only version (optional, for analysis.py)
 dtw-python>=1.2.0
 phonemizer>=3.0.0
 click>=8.0.0
