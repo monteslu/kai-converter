@@ -44,28 +44,38 @@ if [[ "$OS" == "Darwin" ]]; then
     # macOS
     if [[ "$ARCH" == "arm64" ]]; then
         echo "  Detected Apple Silicon Mac"
-        pip install torch torchaudio
+        pip install torch torchaudio torchcrepe
     else
         echo "  Detected Intel Mac"
-        pip install torch torchaudio
+        pip install torch torchaudio torchcrepe
     fi
 elif [[ "$OS" == "Linux" ]]; then
     # Linux
     if [[ "$ARCH" == "aarch64" ]]; then
         echo "  Detected ARM64 Linux (e.g., Jetson, Raspberry Pi)"
-        # For Jetson, might need special wheels
-        pip install torch torchaudio || {
-            echo "  Standard PyTorch installation failed."
-            echo "  For Jetson devices, you may need NVIDIA's wheels:"
-            echo "  https://forums.developer.nvidia.com/t/pytorch-for-jetson"
+
+        # Check if this is a Jetson device
+        if [ -f /etc/nv_tegra_release ] || [ -d /usr/local/cuda ]; then
+            echo "  Detected NVIDIA Jetson device"
+            echo ""
+            echo "  ⚠️  IMPORTANT: Jetson requires special PyTorch wheels!"
+            echo "  See the Jetson section in README.md for proper CUDA setup"
+            echo "  or visit: https://forums.developer.nvidia.com/t/pytorch-for-jetson"
+            echo ""
+            echo "  Attempting standard installation (may not have CUDA support)..."
+        fi
+
+        pip install torch torchaudio torchcrepe || {
+            echo "  Standard PyTorch installation may not have CUDA support on Jetson."
+            echo "  See the Jetson section in README.md for proper installation."
         }
     else
         echo "  Detected x86_64 Linux"
-        pip install torch torchaudio
+        pip install torch torchaudio torchcrepe
     fi
 else
     echo "  Unknown OS, attempting standard installation"
-    pip install torch torchaudio
+    pip install torch torchaudio torchcrepe
 fi
 
 # Install core requirements

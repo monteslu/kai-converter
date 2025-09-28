@@ -83,10 +83,67 @@ pip install -r requirements-optional.txt --no-build-isolation
 pip install yt-dlp
 ```
 
-**Note for ARM64 systems (Jetson Nano, Raspberry Pi, etc.):**
+**Note for ARM64 systems (Raspberry Pi, etc.):**
 - Some optional packages (madmom, essentia) may have limited support
 - The core functionality works without them using librosa fallbacks
 - Use `./install.sh` which handles architecture detection automatically
+
+### Jetson Nano Installation
+
+For NVIDIA Jetson devices, additional steps are required for CUDA support:
+
+#### Prerequisites
+1. JetPack SDK with CUDA installed
+2. Verify CUDA: `nvcc --version`
+
+#### Installation
+```bash
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install NVIDIA's PyTorch wheels (required for CUDA on Jetson)
+# For JetPack 5.x:
+wget https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp310-cp310-linux_aarch64.whl
+pip install torch-2.1.0a0+41361538.nv23.06-cp310-cp310-linux_aarch64.whl
+
+# For older JetPack, see: https://forums.developer.nvidia.com/t/pytorch-for-jetson
+
+# Install remaining dependencies
+pip install torchcrepe torchaudio
+pip install -r requirements.txt
+```
+
+#### Jetson Memory Management
+Jetson Nano has only 4GB RAM. To avoid out-of-memory issues:
+
+1. **Use smaller models:**
+   ```bash
+   python -m kai_pack input.mp3 --whisper-model tiny
+   ```
+
+2. **Increase swap space:**
+   ```bash
+   sudo fallocate -l 8G /swapfile
+   sudo chmod 600 /swapfile
+   sudo mkswap /swapfile
+   sudo swapon /swapfile
+   # Add to /etc/fstab: /swapfile none swap sw 0 0
+   ```
+
+3. **Force CPU if needed:**
+   ```bash
+   python -m kai_pack input.mp3 --cpu
+   ```
+
+#### Troubleshooting Jetson Issues
+- **NumPy conflicts:** Try `pip install "numpy<2.0"`
+- **CUDA not detected:** Export CUDA paths:
+  ```bash
+  export PATH=/usr/local/cuda/bin:$PATH
+  export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+  ```
+- **Monitor resources:** Use `tegrastats` to watch GPU/memory usage
 
 ### 4. Optional: LLM Providers for Lyrics Correction
 
