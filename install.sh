@@ -60,35 +60,54 @@ elif [[ "$OS" == "Linux" ]]; then
 
             # Detect JetPack version
             if [ -f /etc/nv_tegra_release ]; then
-                L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | sed 's/.*R\([0-9]*\).*/\1/')
+                L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | grep -oE 'R[0-9]+' | sed 's/R//')
+                if [ -z "$L4T_VERSION" ]; then
+                    # Fallback parsing
+                    L4T_VERSION=$(cat /etc/nv_tegra_release | grep -oE 'R[0-9]+' | head -1 | sed 's/R//')
+                fi
                 echo "  L4T Release: R${L4T_VERSION}"
             else
-                L4T_VERSION="35"  # Default to newer version
+                L4T_VERSION="32"  # Default to older version for safety
             fi
 
             # Uninstall CPU-only PyTorch if present
+            echo "  Removing any existing PyTorch installations..."
             pip uninstall torch torchvision torchaudio -y 2>/dev/null || true
 
             # Install NVIDIA's PyTorch wheels based on JetPack version
-            if [ "$L4T_VERSION" -ge "35" ]; then
+            if [ "$L4T_VERSION" -ge "35" ] 2>/dev/null; then
                 # JetPack 5.x (L4T R35.x)
                 echo "  Installing PyTorch for JetPack 5.x..."
                 TORCH_URL="https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp310-cp310-linux_aarch64.whl"
-            else
+            elif [ "$L4T_VERSION" -eq "32" ] 2>/dev/null; then
                 # JetPack 4.x (L4T R32.x)
-                echo "  Installing PyTorch for JetPack 4.x..."
-                TORCH_URL="https://nvidia.box.com/shared/static/p57jwntv436lfrd78inwl7iml6p13fzh.whl"
+                echo "  Installing PyTorch for JetPack 4.x (L4T R32)..."
+                # This is for PyTorch 1.10 which should work on older Jetson
+                TORCH_URL="https://nvidia.box.com/shared/static/fjtbno0vpo676a25cgvuqc1wty0fkkg6.whl"
+            else
+                # Unknown version - try a known working wheel
+                echo "  Warning: Could not detect L4T version, trying PyTorch 1.10..."
+                TORCH_URL="https://nvidia.box.com/shared/static/fjtbno0vpo676a25cgvuqc1wty0fkkg6.whl"
             fi
 
             # Download and install PyTorch with CUDA
             echo "  Downloading PyTorch with CUDA support..."
-            wget -q --show-progress "$TORCH_URL" -O torch.whl
-            pip install torch.whl
-            rm torch.whl
+            wget -q --show-progress "$TORCH_URL" -O torch_cuda.whl
+            if pip install torch_cuda.whl; then
+                echo "  ✓ CUDA PyTorch installed"
+            else
+                echo "  ✗ Failed to install CUDA PyTorch, falling back to CPU version"
+                pip install torch
+            fi
+            rm -f torch_cuda.whl
 
-            # Install torchvision and torchaudio compatible versions
-            pip install torchvision torchaudio --no-deps 2>/dev/null || true
-            pip install torchcrepe
+            # Install torchvision and torchaudio WITHOUT dependencies to avoid reinstalling CPU torch
+            echo "  Installing torchvision and torchaudio..."
+            pip install --no-deps torchvision torchaudio 2>/dev/null || true
+
+            # Install torchcrepe WITHOUT dependencies to avoid reinstalling CPU torch
+            echo "  Installing torchcrepe..."
+            pip install --no-deps torchcrepe
 
             # Verify CUDA
             if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
