@@ -34,9 +34,9 @@ pip install --upgrade pip
 echo "Installing build dependencies..."
 pip install wheel setuptools
 
-# Install numpy first (required for madmom build)
-echo "Installing numpy first (required for madmom)..."
-pip install numpy
+# Install numpy <2.0 for scipy compatibility
+echo "Installing numpy <2.0 (required for scipy/madmom compatibility)..."
+pip install "numpy<2.0"
 
 # Platform-specific torch installation
 echo "Installing PyTorch..."
@@ -83,52 +83,29 @@ echo ""
 echo "Installing core audio processing libraries..."
 pip install demucs librosa scipy mutagen
 
-# Try to install madmom (optional - provides better music analysis)
+# Try to install optional packages
 echo ""
-echo "Attempting to install madmom (optional - provides better music analysis)..."
+echo "Installing optional analysis packages..."
 
-# Check if Cython is needed for madmom
-pip install Cython
+# Cython is needed for madmom
+pip install Cython 2>/dev/null || true
 
-if [[ "$OS" == "Darwin" ]]; then
-    # macOS might need different compiler flags
-    if pip install madmom --no-build-isolation; then
-        echo "✓ madmom installed successfully"
-    else
-        # Try without no-build-isolation on Mac if first attempt fails
-        if pip install madmom; then
-            echo "✓ madmom installed successfully (fallback method)"
-        else
-            echo "⚠ madmom installation failed - continuing without it"
-            echo "  The converter will use librosa for onset/beat detection instead"
-        fi
-    fi
+# Try madmom (optional - provides better music analysis)
+echo "  Attempting madmom (better onset/beat detection)..."
+if pip install madmom --no-build-isolation 2>/dev/null; then
+    echo "  ✓ madmom installed successfully"
 else
-    # Linux
-    if pip install madmom --no-build-isolation; then
-        echo "✓ madmom installed successfully"
-    else
-        echo "⚠ madmom installation failed - continuing without it"
-        echo "  The converter will use librosa for onset/beat detection instead"
-    fi
+    echo "  ⚠ madmom installation failed - will use librosa fallback"
 fi
 
-# Try to install essentia (optional - provides better key detection)
-echo ""
-echo "Attempting to install essentia (optional - provides better key detection)..."
-
+# Try essentia (optional - provides better key detection)
+echo "  Attempting essentia (better key detection)..."
 if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
     # ARM systems may have limited essentia versions
-    pip install 'essentia>=2.1b6.dev234' 2>/dev/null || {
-        echo "⚠ essentia installation failed - continuing without it"
-        echo "  The converter will use librosa for key detection instead"
-    }
+    pip install 'essentia>=2.1b6.dev234' 2>/dev/null && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - will use librosa fallback"
 else
     # x86_64 systems can use newer versions
-    pip install 'essentia>=2.1b6.dev374' 2>/dev/null || pip install 'essentia>=2.1b6.dev234' 2>/dev/null || {
-        echo "⚠ essentia installation failed - continuing without it"
-        echo "  The converter will use librosa for key detection instead"
-    }
+    (pip install 'essentia>=2.1b6.dev374' 2>/dev/null || pip install 'essentia>=2.1b6.dev234' 2>/dev/null) && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - will use librosa fallback"
 fi
 
 # Install any remaining requirements

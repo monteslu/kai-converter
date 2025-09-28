@@ -2,7 +2,7 @@ torch>=2.0.0
 torchaudio>=2.0.0
 demucs>=4.0.0
 librosa>=0.10.0
-numpy>=1.21.0
+numpy>=1.21.0,<2.0  # Must be <2.0 for scipy compatibility
 scipy>=1.7.0
 mutagen>=1.45.0
 # Optional packages (install separately if needed):
