@@ -151,10 +151,10 @@ fi
 # Use the same Python that pip is using
 PYTHON_CMD="${PYTHON_CMD:-python3}"
 
-$PYTHON_CMD -c "import torch; print(f'  ✓ PyTorch {torch.__version__}')" 2>/dev/null || echo "  ✗ PyTorch"
-$PYTHON_CMD -c "import torchaudio; print(f'  ✓ torchaudio {torchaudio.__version__}')" 2>/dev/null || echo "  ✗ torchaudio"
+$PYTHON_CMD -c "import torch; print('  ✓ PyTorch', torch.__version__)" 2>/dev/null || echo "  ✗ PyTorch"
+$PYTHON_CMD -c "import torchaudio; print('  ✓ torchaudio', torchaudio.__version__)" 2>/dev/null || echo "  ✗ torchaudio"
 $PYTHON_CMD -c "import demucs; print('  ✓ demucs')" 2>/dev/null || echo "  ✗ demucs"
-$PYTHON_CMD -c "import librosa; print(f'  ✓ librosa {librosa.__version__}')" 2>/dev/null || echo "  ✗ librosa"
+$PYTHON_CMD -c "import librosa; print('  ✓ librosa', librosa.__version__)" 2>/dev/null || echo "  ✗ librosa"
 $PYTHON_CMD -c "import torchcrepe; print('  ✓ torchcrepe (GPU-capable pitch detection)')" 2>/dev/null || echo "  ✗ torchcrepe"
 $PYTHON_CMD -c "import madmom; print('  ✓ madmom (enhanced audio analysis)')" 2>/dev/null || echo "  ⚠ madmom (using librosa fallback)"
 $PYTHON_CMD -c "import essentia; print('  ✓ essentia (enhanced key detection)')" 2>/dev/null || echo "  ⚠ essentia (using librosa fallback)"
