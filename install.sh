@@ -52,23 +52,55 @@ if [[ "$OS" == "Darwin" ]]; then
 elif [[ "$OS" == "Linux" ]]; then
     # Linux
     if [[ "$ARCH" == "aarch64" ]]; then
-        echo "  Detected ARM64 Linux (e.g., Jetson, Raspberry Pi)"
+        echo "  Detected ARM64 Linux"
 
         # Check if this is a Jetson device
         if [ -f /etc/nv_tegra_release ] || [ -d /usr/local/cuda ]; then
-            echo "  Detected NVIDIA Jetson device"
-            echo ""
-            echo "  ⚠️  IMPORTANT: Jetson requires special PyTorch wheels!"
-            echo "  See the Jetson section in README.md for proper CUDA setup"
-            echo "  or visit: https://forums.developer.nvidia.com/t/pytorch-for-jetson"
-            echo ""
-            echo "  Attempting standard installation (may not have CUDA support)..."
-        fi
+            echo "  Detected NVIDIA Jetson device - installing CUDA-enabled PyTorch"
 
-        pip install torch torchaudio torchcrepe || {
-            echo "  Standard PyTorch installation may not have CUDA support on Jetson."
-            echo "  See the Jetson section in README.md for proper installation."
-        }
+            # Detect JetPack version
+            if [ -f /etc/nv_tegra_release ]; then
+                L4T_VERSION=$(head -n 1 /etc/nv_tegra_release | sed 's/.*R\([0-9]*\).*/\1/')
+                echo "  L4T Release: R${L4T_VERSION}"
+            else
+                L4T_VERSION="35"  # Default to newer version
+            fi
+
+            # Uninstall CPU-only PyTorch if present
+            pip uninstall torch torchvision torchaudio -y 2>/dev/null || true
+
+            # Install NVIDIA's PyTorch wheels based on JetPack version
+            if [ "$L4T_VERSION" -ge "35" ]; then
+                # JetPack 5.x (L4T R35.x)
+                echo "  Installing PyTorch for JetPack 5.x..."
+                TORCH_URL="https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp310-cp310-linux_aarch64.whl"
+            else
+                # JetPack 4.x (L4T R32.x)
+                echo "  Installing PyTorch for JetPack 4.x..."
+                TORCH_URL="https://nvidia.box.com/shared/static/p57jwntv436lfrd78inwl7iml6p13fzh.whl"
+            fi
+
+            # Download and install PyTorch with CUDA
+            echo "  Downloading PyTorch with CUDA support..."
+            wget -q --show-progress "$TORCH_URL" -O torch.whl
+            pip install torch.whl
+            rm torch.whl
+
+            # Install torchvision and torchaudio compatible versions
+            pip install torchvision torchaudio --no-deps 2>/dev/null || true
+            pip install torchcrepe
+
+            # Verify CUDA
+            if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+                echo "  ✓ CUDA-enabled PyTorch installed successfully!"
+            else
+                echo "  ⚠ PyTorch installed but CUDA not detected. Check CUDA installation."
+            fi
+        else
+            # Regular ARM64 (Raspberry Pi, etc)
+            echo "  Detected ARM64 Linux (non-Jetson)"
+            pip install torch torchaudio torchcrepe
+        fi
     else
         echo "  Detected x86_64 Linux"
         pip install torch torchaudio torchcrepe
