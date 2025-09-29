@@ -77,16 +77,29 @@ elif [[ "$OS" == "Linux" ]]; then
             # Install NVIDIA's PyTorch wheels based on JetPack version
             if [ "$L4T_VERSION" -ge "36" ] 2>/dev/null; then
                 # JetPack 6.x (L4T R36.x) - newest
-                echo "  Installing PyTorch for JetPack 6.x (L4T R36)..."
-                echo ""
-                echo "  ERROR: JetPack 6.x requires manual PyTorch installation"
-                echo "  Please follow these steps:"
-                echo "    1. Visit: https://developer.nvidia.com/embedded/downloads"
-                echo "    2. Download PyTorch wheel for JetPack 6.0"
-                echo "    3. Install with: pip install <downloaded_wheel.whl>"
-                echo ""
-                echo "  Installing CPU PyTorch for now..."
-                pip install torch
+                echo "  Installing PyTorch 2.3.0 for JetPack 6.x (L4T R36)..."
+
+                # PyTorch 2.3.0 with CUDA 12.4 for Python 3.10
+                TORCH_URL="https://nvidia.box.com/shared/static/zvultzsmd4iuheykxy17s4l2n91ylpl8.whl"
+                TORCHAUDIO_URL="https://nvidia.box.com/shared/static/9si945yrzesspmg9up4ys380lqxjylc3.whl"
+                TORCHVISION_URL="https://nvidia.box.com/shared/static/u0ziu01c0kyji4zz3gxam79181nebylf.whl"
+
+                echo "  Downloading PyTorch 2.3.0 with CUDA 12.4..."
+                if wget -q --show-progress "$TORCH_URL" -O torch_cuda.whl; then
+                    if file torch_cuda.whl | grep -q "Zip archive"; then
+                        pip install torch_cuda.whl && echo "  ✓ CUDA PyTorch 2.3.0 installed"
+                        # Download and install torchvision and torchaudio
+                        wget -q "$TORCHVISION_URL" -O torchvision.whl 2>/dev/null && pip install --no-deps torchvision.whl 2>/dev/null && rm torchvision.whl
+                        wget -q "$TORCHAUDIO_URL" -O torchaudio.whl 2>/dev/null && pip install --no-deps torchaudio.whl 2>/dev/null && rm torchaudio.whl
+                    else
+                        echo "  Download failed, installing CPU version..."
+                        pip install torch
+                    fi
+                    rm -f torch_cuda.whl
+                else
+                    echo "  Download failed, installing CPU version..."
+                    pip install torch
+                fi
             elif [ "$L4T_VERSION" -ge "35" ] 2>/dev/null; then
                 # JetPack 5.x (L4T R35.x)
                 echo "  Installing PyTorch for JetPack 5.x..."
