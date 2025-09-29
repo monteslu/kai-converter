@@ -85,19 +85,30 @@ elif [[ "$OS" == "Linux" ]]; then
                 TORCHVISION_URL="https://nvidia.box.com/shared/static/u0ziu01c0kyji4zz3gxam79181nebylf.whl"
 
                 echo "  Downloading PyTorch 2.3.0 with CUDA 12.4..."
-                if wget -q --show-progress "$TORCH_URL" -O torch_cuda.whl; then
-                    if file torch_cuda.whl | grep -q "Zip archive"; then
-                        pip install torch_cuda.whl && echo "  ✓ CUDA PyTorch 2.3.0 installed"
-                        # Download and install torchvision and torchaudio
-                        wget -q "$TORCHVISION_URL" -O torchvision.whl 2>/dev/null && pip install --no-deps torchvision.whl 2>/dev/null && rm torchvision.whl
-                        wget -q "$TORCHAUDIO_URL" -O torchaudio.whl 2>/dev/null && pip install --no-deps torchaudio.whl 2>/dev/null && rm torchaudio.whl
+                if wget --no-check-certificate --show-progress "$TORCH_URL" -O "torch-2.3.0-jetpack6-cuda.whl"; then
+                    # Check if it's a valid wheel file
+                    if file "torch-2.3.0-jetpack6-cuda.whl" | grep -q "Zip archive" && [[ $(stat -c%s "torch-2.3.0-jetpack6-cuda.whl") -gt 100000000 ]]; then
+                        echo "  Installing CUDA PyTorch..."
+                        if pip install "torch-2.3.0-jetpack6-cuda.whl"; then
+                            echo "  ✓ CUDA PyTorch 2.3.0 installed successfully!"
+                            CUDA_PYTORCH_INSTALLED=true
+
+                            # Install compatible torchvision and torchaudio
+                            echo "  Installing torchvision and torchaudio..."
+                            wget --no-check-certificate -q "$TORCHVISION_URL" -O "torchvision-jetpack6.whl" && pip install --no-deps "torchvision-jetpack6.whl" && rm "torchvision-jetpack6.whl" 2>/dev/null || true
+                            wget --no-check-certificate -q "$TORCHAUDIO_URL" -O "torchaudio-jetpack6.whl" && pip install --no-deps "torchaudio-jetpack6.whl" && rm "torchaudio-jetpack6.whl" 2>/dev/null || true
+                        else
+                            echo "  ✗ CUDA PyTorch installation failed, trying CPU version..."
+                            pip install torch
+                        fi
                     else
-                        echo "  Download failed, installing CPU version..."
+                        echo "  ✗ Downloaded file is invalid (size: $(stat -c%s "torch-2.3.0-jetpack6-cuda.whl" 2>/dev/null || echo "unknown"))"
+                        echo "  Installing CPU PyTorch..."
                         pip install torch
                     fi
-                    rm -f torch_cuda.whl
+                    rm -f "torch-2.3.0-jetpack6-cuda.whl"
                 else
-                    echo "  Download failed, installing CPU version..."
+                    echo "  ✗ Download failed, installing CPU version..."
                     pip install torch
                 fi
             elif [ "$L4T_VERSION" -ge "35" ] 2>/dev/null; then
@@ -130,9 +141,12 @@ elif [[ "$OS" == "Linux" ]]; then
                 pip install torch
             fi
 
-            # Install torchvision and torchaudio WITHOUT dependencies to avoid reinstalling CPU torch
-            echo "  Installing torchvision and torchaudio..."
-            pip install --no-deps torchvision torchaudio 2>/dev/null || true
+            # Only install these if we didn't already install CUDA versions
+            if [ "$CUDA_PYTORCH_INSTALLED" != "true" ]; then
+                # Install torchvision and torchaudio WITHOUT dependencies to avoid reinstalling CPU torch
+                echo "  Installing torchvision and torchaudio..."
+                pip install --no-deps torchvision torchaudio 2>/dev/null || true
+            fi
 
             # Install torchcrepe WITHOUT dependencies to avoid reinstalling CPU torch
             echo "  Installing torchcrepe..."
@@ -161,7 +175,13 @@ fi
 # Install core requirements
 echo ""
 echo "Installing core audio processing libraries..."
-pip install demucs librosa scipy mutagen
+if [ "$CUDA_PYTORCH_INSTALLED" = "true" ]; then
+    # Install without torch dependency to avoid overwriting CUDA version
+    pip install --no-deps demucs || pip install demucs
+    pip install librosa scipy mutagen
+else
+    pip install demucs librosa scipy mutagen
+fi
 
 # Try to install optional packages
 echo ""
