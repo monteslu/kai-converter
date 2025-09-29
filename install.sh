@@ -85,28 +85,31 @@ elif [[ "$OS" == "Linux" ]]; then
                 TORCHVISION_URL="https://nvidia.box.com/shared/static/u0ziu01c0kyji4zz3gxam79181nebylf.whl"
 
                 echo "  Downloading PyTorch 2.3.0 with CUDA 12.4..."
-                if wget --no-check-certificate --show-progress "$TORCH_URL" -O "torch-2.3.0-jetpack6-cuda.whl"; then
+                TORCH_WHEEL="torch-2.3.0a0+6a974be.nv24.05.14710581-cp310-cp310-linux_aarch64.whl"
+                if wget --no-check-certificate --show-progress "$TORCH_URL" -O "$TORCH_WHEEL"; then
                     # Check if it's a valid wheel file
-                    if file "torch-2.3.0-jetpack6-cuda.whl" | grep -q "Zip archive" && [[ $(stat -c%s "torch-2.3.0-jetpack6-cuda.whl") -gt 100000000 ]]; then
+                    if file "$TORCH_WHEEL" | grep -q "Zip archive" && [[ $(stat -c%s "$TORCH_WHEEL") -gt 100000000 ]]; then
                         echo "  Installing CUDA PyTorch..."
-                        if pip install "torch-2.3.0-jetpack6-cuda.whl"; then
+                        if pip install "$TORCH_WHEEL"; then
                             echo "  ✓ CUDA PyTorch 2.3.0 installed successfully!"
                             CUDA_PYTORCH_INSTALLED=true
 
                             # Install compatible torchvision and torchaudio
                             echo "  Installing torchvision and torchaudio..."
-                            wget --no-check-certificate -q "$TORCHVISION_URL" -O "torchvision-jetpack6.whl" && pip install --no-deps "torchvision-jetpack6.whl" && rm "torchvision-jetpack6.whl" 2>/dev/null || true
-                            wget --no-check-certificate -q "$TORCHAUDIO_URL" -O "torchaudio-jetpack6.whl" && pip install --no-deps "torchaudio-jetpack6.whl" && rm "torchaudio-jetpack6.whl" 2>/dev/null || true
+                            TORCHVISION_WHEEL="torchvision-0.18.0a0+6043bc2.nv24.05-cp310-cp310-linux_aarch64.whl"
+                            TORCHAUDIO_WHEEL="torchaudio-2.3.0a0+6d5c5b4.nv24.05-cp310-cp310-linux_aarch64.whl"
+                            wget --no-check-certificate -q "$TORCHVISION_URL" -O "$TORCHVISION_WHEEL" && pip install --no-deps "$TORCHVISION_WHEEL" && rm "$TORCHVISION_WHEEL" 2>/dev/null || true
+                            wget --no-check-certificate -q "$TORCHAUDIO_URL" -O "$TORCHAUDIO_WHEEL" && pip install --no-deps "$TORCHAUDIO_WHEEL" && rm "$TORCHAUDIO_WHEEL" 2>/dev/null || true
                         else
                             echo "  ✗ CUDA PyTorch installation failed, trying CPU version..."
                             pip install torch
                         fi
                     else
-                        echo "  ✗ Downloaded file is invalid (size: $(stat -c%s "torch-2.3.0-jetpack6-cuda.whl" 2>/dev/null || echo "unknown"))"
+                        echo "  ✗ Downloaded file is invalid (size: $(stat -c%s "$TORCH_WHEEL" 2>/dev/null || echo "unknown"))"
                         echo "  Installing CPU PyTorch..."
                         pip install torch
                     fi
-                    rm -f "torch-2.3.0-jetpack6-cuda.whl"
+                    rm -f "$TORCH_WHEEL"
                 else
                     echo "  ✗ Download failed, installing CPU version..."
                     pip install torch
