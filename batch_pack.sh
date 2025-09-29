@@ -124,6 +124,18 @@ echo "Folder: $FOLDER"
 echo "Options: $KAI_PACK_ARGS"
 echo ""
 
+# Memory optimization setup
+echo "Setting up memory optimization..."
+# Only set CUDA-specific vars if CUDA is available
+if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+    echo "  CUDA detected - enabling GPU memory optimizations"
+    export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64
+    export CUDA_LAUNCH_BLOCKING=0
+    export PYTORCH_NO_CUDA_MEMORY_CACHING=0
+else
+    echo "  CPU mode - skipping GPU optimizations"
+fi
+
 # Find all MP3 files (portable method for older bash/zsh compatibility)
 MP3_FILES=()
 while IFS= read -r -d '' file; do
@@ -216,6 +228,9 @@ for i in "${!TO_PROCESS[@]}"; do
         echo "Running: $KAI_PACK_CMD"
         echo ""
     fi
+
+    # Clear GPU memory before processing (if CUDA available)
+    python3 -c "import torch; import gc; gc.collect(); torch.cuda.empty_cache() if torch.cuda.is_available() else None" 2>/dev/null || true
 
     # Execute kai_pack.sh
     start_time=$(date +%s)
