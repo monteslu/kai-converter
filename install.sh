@@ -111,9 +111,9 @@ elif [[ "$OS" == "Linux" ]]; then
                     echo "  ✗ Download failed, installing CPU version..."
                     pip install torch
                 fi
-            elif [ "$L4T_VERSION" -ge "35" ] 2>/dev/null; then
-                # JetPack 5.x (L4T R35.x)
-                echo "  Installing PyTorch for JetPack 5.x..."
+            elif [ "$L4T_VERSION" -eq "35" ] 2>/dev/null; then
+                # JetPack 5.x (L4T R35.x) - exact match only
+                echo "  Installing PyTorch for JetPack 5.x (L4T R35)..."
                 # Direct download link that works
                 TORCH_URL="https://developer.download.nvidia.com/compute/redist/jp/v512/pytorch/torch-2.1.0a0+41361538.nv23.06-cp310-cp310-linux_aarch64.whl"
                 echo "  Downloading PyTorch 2.1.0 with CUDA support..."
