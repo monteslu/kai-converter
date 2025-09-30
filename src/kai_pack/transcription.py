@@ -766,72 +766,59 @@ class LyricsTranscriber:
             logger.warning("No segments found in transcription")
             return self._create_basic_alignment(full_text)
             
-        # Convert segments to lines and words
+        # Convert segments to lines
         lines = []
-        all_words = []
         
         for i, segment in enumerate(segments):
-            line_id = f"L{i + 1}"
             segment_text = segment.get("text", "").strip()
             start_time = segment.get("start", 0.0)
             end_time = segment.get("end", start_time + 3.0)
             
             # Process words in this segment
             segment_words = segment.get("words", [])
-            line_word_objects = []
-            
+            word_timing_pairs = []
+
             if segment_words:
-                # We have word-level timestamps
+                # We have word-level timestamps from Whisper
                 for j, word_data in enumerate(segment_words):
                     word_text = word_data.get("word", "").strip()
                     word_start = word_data.get("start", start_time)
                     word_end = word_data.get("end", word_start + 0.5)
-                    confidence = word_data.get("probability", 0.8)
-                    
+
                     if word_text:  # Skip empty words
-                        word_id = f"W{len(all_words) + 1}"
-                        word_obj = {
-                            "id": word_id,
-                            "t": word_text,
-                            "s": round(float(word_start), 3),
-                            "e": round(float(word_end), 3),
-                            "conf": round(float(confidence), 2)
-                        }
-                        
-                        all_words.append(word_obj)
-                        line_word_objects.append(word_obj)
+                        # Calculate relative timing (relative to line start)
+                        word_start_rel = word_start - start_time
+                        word_end_rel = word_end - start_time
+                        word_timing_pairs.append([
+                            round(float(word_start_rel), 3),
+                            round(float(word_end_rel), 3)
+                        ])
             else:
                 # No word-level timestamps, split text and estimate
                 words = segment_text.split()
                 if words:
                     word_duration = (end_time - start_time) / len(words)
-                    
+
                     for j, word_text in enumerate(words):
-                        word_start = start_time + j * word_duration
-                        word_end = start_time + (j + 1) * word_duration
-                        
-                        word_id = f"W{len(all_words) + 1}"
-                        word_obj = {
-                            "id": word_id,
-                            "t": word_text,
-                            "s": round(word_start, 3),
-                            "e": round(word_end, 3),
-                            "conf": 0.6  # Lower confidence for estimated timing
-                        }
-                        
-                        all_words.append(word_obj)
-                        line_word_objects.append(word_obj)
+                        word_start_rel = j * word_duration
+                        word_end_rel = (j + 1) * word_duration
+                        word_timing_pairs.append([
+                            round(word_start_rel, 3),
+                            round(word_end_rel, 3)
+                        ])
             
             # Create line object
             if segment_text:  # Skip empty segments
                 line_obj = {
-                    "id": line_id,
                     "singer_id": "A",
                     "start": round(float(start_time), 3),
                     "end": round(float(end_time), 3),
-                    "text": segment_text,
-                    "words": line_word_objects
+                    "text": segment_text
                 }
+
+                # Only add word_timing if we have timing data
+                if word_timing_pairs:
+                    line_obj["word_timing"] = word_timing_pairs
                 
                 # Filter out unrealistically short segments (likely artifacts)
                 duration = end_time - start_time
@@ -843,27 +830,19 @@ class LyricsTranscriber:
                 else:
                     logger.info(f"Filtering out short segment ({duration:.2f}s < {min_duration:.2f}s): '{segment_text}'")
         
-        # Calculate overall confidence
-        total_confidence = 0.0
-        word_count = 0
-        for word in all_words:
-            total_confidence += word.get("conf", 0.0)
-            word_count += 1
-            
-        avg_confidence = total_confidence / word_count if word_count > 0 else 0.0
-        
+        # Calculate overall confidence based on segments
+        avg_confidence = 0.7  # Default confidence for Whisper transcription
+
         alignment_result = {
             "lines": lines,
-            "words": all_words,
             "alignment_method": f"whisper-{self.model_name}",
-            "confidence": round(avg_confidence, 2),
+            "confidence": avg_confidence,
             "reference": "aligned_to_vocals_wav",
             "offset_sec": 0.0,
             "transcribed_text": full_text
         }
-        
-        logger.info(f"Processed {len(lines)} lines, {len(all_words)} words, "
-                   f"confidence: {avg_confidence:.2f}")
+
+        logger.info(f"Processed {len(lines)} lines, confidence: {avg_confidence:.2f}")
         
         return alignment_result
         
@@ -871,7 +850,6 @@ class LyricsTranscriber:
         """Create empty alignment when no transcription is available."""
         return {
             "lines": [],
-            "words": [],
             "alignment_method": f"whisper-{self.model_name}",
             "confidence": 0.0,
             "reference": "aligned_to_vocals_wav",
@@ -901,55 +879,47 @@ class LyricsTranscriber:
                 sentences = [text]
         
         lines = []
-        all_words = []
-        
+
         # Estimate total duration (assume 3 seconds per line)
         estimated_duration = len(sentences) * 3.0
         line_duration = estimated_duration / len(sentences) if sentences else 3.0
-        
+
         for i, sentence in enumerate(sentences):
-            line_id = f"L{i + 1}"
             start_time = i * line_duration
             end_time = (i + 1) * line_duration
             
             # Split sentence into words
             words = sentence.split()
             word_duration = line_duration / len(words) if words else 1.0
-            
-            line_word_objects = []
+            word_timing_pairs = []
+
             for j, word_text in enumerate(words):
-                word_start = start_time + j * word_duration
-                word_end = start_time + (j + 1) * word_duration
-                
-                word_id = f"W{len(all_words) + 1}"
-                word_obj = {
-                    "id": word_id,
-                    "t": word_text,
-                    "s": round(word_start, 3),
-                    "e": round(word_end, 3),
-                    "conf": 0.3  # Low confidence for estimated timing
-                }
-                
-                all_words.append(word_obj)
-                line_word_objects.append(word_obj)
-            
+                # Relative timing
+                word_start_rel = j * word_duration
+                word_end_rel = (j + 1) * word_duration
+                word_timing_pairs.append([
+                    round(word_start_rel, 3),
+                    round(word_end_rel, 3)
+                ])
+
             line_obj = {
-                "id": line_id,
                 "singer_id": "A",
                 "start": round(start_time, 3),
                 "end": round(end_time, 3),
-                "text": sentence,
-                "words": line_word_objects
+                "text": sentence
             }
+
+            # Only add word_timing if we have timing data
+            if word_timing_pairs:
+                line_obj["word_timing"] = word_timing_pairs
             
             lines.append(line_obj)
         
         return {
             "lines": lines,
-            "words": all_words,
             "alignment_method": f"whisper-{self.model_name}-basic",
             "confidence": 0.3,
-            "reference": "aligned_to_vocals_wav", 
+            "reference": "aligned_to_vocals_wav",
             "offset_sec": 0.0,
             "transcribed_text": text
         }

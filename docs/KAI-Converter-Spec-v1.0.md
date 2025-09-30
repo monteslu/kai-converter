@@ -1,8 +1,8 @@
 
 # KAI-Converter — Preprocessing CLI (v1.0, KAI-4 MVP)
 
-**Status:** Implementation Spec (MVP — 4-stem only)  
-**Date:** 2025-09-07T18:27:15Z  
+**Status:** Implementation Spec (MVP — 4-stem only)
+**Date:** 2025-09-07T18:27:15Z (Updated: 2025-09-29)  
 **Targets:** Linux, Windows, macOS  
 **License:** MIT for CLI glue; upstream libs remain their FOSS licenses
 
@@ -49,8 +49,12 @@ Options:
 - Record model + git SHA under `meta.processing.separation`
 
 ### 4.3 Lyrics alignment
-- Inputs: `vocals.wav`, `LYRICS.txt`
-- Output: `song.json.lines[]` (word/line timings), `timing.reference="aligned_to_vocals_wav"`, `offset_sec`
+- Inputs: `vocals.wav`, `LYRICS.txt` (or auto-transcribe with Whisper)
+- Output: `song.json.lines[]` with:
+  - Line-level timing (`start`, `end`, `text`)
+  - Optional word-level timing in `word_timing` array
+  - Format: `[[start_rel, end_rel], ...]` where times are relative to line start
+- Sets `timing.reference="aligned_to_vocals_wav"`, `offset_sec`
 
 ### 4.4 Optional analysis → `features/`
 - F0, notes, onsets, tempo, keys, chords, vocal activity, MFCC
@@ -80,3 +84,11 @@ Options:
 
 ## 7. Tests
 - Golden clips for timings; schema validation; encoder delay checks; stem presence & hash verification
+
+## 8. Notes
+
+### Implementation Details (2025-09-29)
+- Includes `word_timing` array in lines for word-level karaoke highlighting
+- Format: `[[start_rel, end_rel], ...]` with times relative to line start
+- CREPE step size set to 25ms for faster processing
+- Clean format with no text redundancy

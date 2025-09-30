@@ -205,7 +205,18 @@ def main(
                 if result.returncode == 0:
                     logger.info(f"✓ Lyrics automatically fixed using {llm_provider}")
                 else:
-                    logger.error("Lyrics fixing failed - see errors above")
+                    logger.error("Lyrics fixing failed after retries - deleting KAI file")
+                    logger.error("Song has been added to errored_songs.txt")
+
+                    # Delete the KAI file since lyrics fixing failed
+                    try:
+                        output.unlink()
+                        logger.error(f"✗ Deleted failed KAI file: {output}")
+                    except Exception as delete_error:
+                        logger.error(f"Failed to delete KAI file: {delete_error}")
+
+                    # Exit with error so batch script can continue to next song
+                    sys.exit(1)
 
                 # Clean up LRCLIB temp file
                 if lyrics_temp_file and os.path.exists(lyrics_temp_file):

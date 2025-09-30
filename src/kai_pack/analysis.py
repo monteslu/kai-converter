@@ -138,28 +138,28 @@ class MusicalAnalyzer:
             
     def _extract_f0_crepe(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract F0 using CREPE."""
-        # CREPE expects specific hop length for 10ms frames
-        crepe_hop_length = int(0.01 * self.sample_rate)  # 10ms
-        
+        # CREPE step size for 25ms frames (good balance of speed vs accuracy)
+        step_size = 25  # 25ms
+
         time, frequency, confidence, _ = crepe.predict(
             audio,
             self.sample_rate,
-            step_size=10,  # 10ms
-            viterbi=True,
+            step_size=step_size,  # 25ms
+            viterbi=False,  # Skip smoothing for speed
             model_capacity='tiny'  # Fast model
         )
-        
+
         # Convert to cents relative to A4 (440 Hz)
         cents = np.zeros_like(frequency)
         valid_mask = frequency > 0
         cents[valid_mask] = 1200 * np.log2(frequency[valid_mask] / 440.0)
-        
+
         return {
             "times": time.tolist(),
             "frequencies": frequency.tolist(),
-            "cents": cents.tolist(), 
+            "cents": cents.tolist(),
             "confidence": confidence.tolist(),
-            "hop_ms": 10,
+            "hop_ms": step_size,
             "method": "crepe-tiny"
         }
     

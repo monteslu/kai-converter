@@ -213,7 +213,6 @@ class KaiProcessor:
                 
                 logger.info(f"✓ Transcription completed:")
                 logger.info(f"  - Lines found: {len(alignment_data.get('lines', []))}")
-                logger.info(f"  - Words found: {len(alignment_data.get('words', []))}")
                 logger.info(f"  - Confidence: {alignment_data.get('confidence', 0.0):.2f}")
                 logger.info(f"  - Language: {alignment_data.get('language', 'unknown')}")
                 logger.info(f"✓ Step 4 completed in {step_time:.1f}s")
@@ -413,7 +412,6 @@ class KaiProcessor:
                     "processing_stats": {
                         "stems_separated": len(stems),
                         "lines_aligned": len(alignment_data.get("lines", [])),
-                        "words_aligned": len(alignment_data.get("words", [])),
                         "features_extracted": len(analysis_features),
                         "encoder_delay_samples": canonical_encoder_delay,
                         "alignment_confidence": alignment_data.get("confidence", 0.5)
@@ -428,7 +426,7 @@ class KaiProcessor:
                 logger.info(f"Total time: {processing_time:.1f}s")
                 logger.info(f"Input: {input_audio.name} ({audio_info['duration_seconds']:.1f}s)")
                 logger.info(f"Output: {output_path.name} ({final_size:,} bytes)")
-                logger.info(f"Transcription: {len(alignment_data.get('lines', []))} lines, {len(alignment_data.get('words', []))} words")
+                logger.info(f"Transcription: {len(alignment_data.get('lines', []))} lines")
                 logger.info(f"Confidence: {alignment_data.get('confidence', 0.0):.2f}")
                 logger.info("=" * 60)
 
