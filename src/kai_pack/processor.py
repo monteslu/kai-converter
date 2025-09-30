@@ -34,6 +34,7 @@ class KaiProcessor:
         device: Optional[str] = None,
         whisper_model: str = "base",
         language: str = "en",
+        lyrics_url: Optional[str] = None,
         use_crepe_filter: bool = False,
         silence_threshold: int = -20,
         vocal_pitch_type: str = "midi_cents",
@@ -43,6 +44,7 @@ class KaiProcessor:
         self.model_name = model_name
         self.verbose = verbose
         self.language = language
+        self.lyrics_url = lyrics_url
         
         # Initialize components
         self.audio_processor = AudioProcessor(sample_rate=sample_rate)
@@ -203,7 +205,7 @@ class KaiProcessor:
                 # Prepare Whisper context with LRCLIB vocabulary hints
                 title = metadata['song'].get('title', '')
                 artist = metadata['song'].get('artist', '')
-                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist)
+                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url)
 
                 logger.info("Starting smart chunking and transcription...")
 

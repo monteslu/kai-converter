@@ -118,9 +118,39 @@ def extract_vocabulary_hints(lyrics: str) -> str:
     return ', '.join(selected_words)
 
 
-def prepare_whisper_context(title: str, artist: str = "") -> Tuple[Optional[str], Optional[str]]:
+def fetch_lyrics_from_url(url: str) -> Optional[str]:
+    """Fetch plain lyrics from a specific LRCLIB URL."""
+    try:
+        logger.info(f"Fetching lyrics from URL: {url}")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+
+        result = response.json()
+
+        if result.get("instrumental", False):
+            logger.warning("Track is marked as instrumental")
+            return None
+
+        if result.get("plainLyrics"):
+            logger.info(f"✓ Found lyrics: {result.get('name', 'Unknown')}")
+            return result["plainLyrics"]
+        else:
+            logger.warning("No plain lyrics in response")
+            return None
+
+    except Exception as e:
+        logger.warning(f"Failed to fetch lyrics from URL: {e}")
+        return None
+
+
+def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None) -> Tuple[Optional[str], Optional[str]]:
     """
     Prepare Whisper initial_prompt with LRCLIB vocabulary enhancement.
+
+    Args:
+        title: Song title
+        artist: Artist name
+        lyrics_url: Optional direct LRCLIB URL (e.g., https://lrclib.net/api/get/123456)
 
     Returns:
         tuple: (initial_prompt, lyrics_temp_file_path)
@@ -128,22 +158,26 @@ def prepare_whisper_context(title: str, artist: str = "") -> Tuple[Optional[str]
     vocabulary_hints = ""
     lyrics_temp_file = None
 
-    # Try to fetch lyrics from LRCLIB for vocabulary hints
-    if title and artist:
+    # Try to fetch lyrics - either from URL or search
+    lyrics = None
+    if lyrics_url:
+        lyrics = fetch_lyrics_from_url(lyrics_url)
+    elif title and artist:
         lyrics = fetch_lyrics_from_lrclib(title, artist)
-        if lyrics:
-            vocabulary_hints = extract_vocabulary_hints(lyrics)
 
-            # Save lyrics to temp file for potential fix_lyrics usage
-            try:
-                lyrics_temp_fd, lyrics_temp_file = tempfile.mkstemp(suffix='.txt', prefix='lrclib_lyrics_')
-                with open(lyrics_temp_file, 'w', encoding='utf-8') as f:
-                    f.write(lyrics)
-                os.close(lyrics_temp_fd)  # Close file descriptor, keep file
-                logger.info(f"Saved reference lyrics to: {lyrics_temp_file}")
-            except Exception as e:
-                logger.warning(f"Failed to save lyrics to temp file: {e}")
-                lyrics_temp_file = None
+    if lyrics:
+        vocabulary_hints = extract_vocabulary_hints(lyrics)
+
+        # Save lyrics to temp file for potential fix_lyrics usage
+        try:
+            lyrics_temp_fd, lyrics_temp_file = tempfile.mkstemp(suffix='.txt', prefix='lrclib_lyrics_')
+            with open(lyrics_temp_file, 'w', encoding='utf-8') as f:
+                f.write(lyrics)
+            os.close(lyrics_temp_fd)  # Close file descriptor, keep file
+            logger.info(f"Saved reference lyrics to: {lyrics_temp_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save lyrics to temp file: {e}")
+            lyrics_temp_file = None
 
     # Build initial prompt with vocabulary context
     initial_prompt = None

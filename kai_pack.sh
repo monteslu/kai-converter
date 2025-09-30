@@ -15,6 +15,7 @@ if [ $# -eq 0 ]; then
     echo "  --language LANG        Language code for transcription (default: en)"
     echo "                         Use 'auto' for mixed-language songs"
     echo "                         Examples: en, es, fr, de, ja, zh, ko, pt"
+    echo "  --lyrics-url URL       LRCLIB URL for reference lyrics (e.g., https://lrclib.net/api/get/123456)"
     echo "  --four-stems           Use 4-stem separation instead of default 2-stem"
     echo "  --fix-lyrics           Automatically fix lyrics using LLM after processing"
     echo "  --llm-provider PROV    LLM provider: openai, lmstudio, anthropic, gemini (default: auto)"

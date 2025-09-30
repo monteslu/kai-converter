@@ -15,14 +15,37 @@ echo "Python version: $PYTHON_VERSION"
 
 # Check if we're in a virtual environment
 if [[ "$VIRTUAL_ENV" == "" ]]; then
-    echo "Warning: Not in a virtual environment. Consider creating one with:"
-    echo "  python3 -m venv venv"
-    echo "  source venv/bin/activate"
-    echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
+    if [ -d "venv" ]; then
+        echo "Virtual environment exists but not activated."
+        echo "Activating virtual environment..."
+        source venv/bin/activate
+        if [[ "$VIRTUAL_ENV" == "" ]]; then
+            echo "Error: Failed to activate virtual environment."
+            exit 1
+        fi
+        echo "✓ Virtual environment activated"
+        echo ""
+    else
+        echo "No virtual environment detected."
+        read -p "Create one now? (Y/n) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Nn]$ ]]; then
+            echo "Installation cancelled. Create a virtual environment with:"
+            echo "  python3 -m venv venv"
+            echo "  source venv/bin/activate"
+            exit 1
+        fi
+        echo "Creating virtual environment..."
+        python3 -m venv venv
+        echo "✓ Virtual environment created"
+        echo "Activating virtual environment..."
+        source venv/bin/activate
+        if [[ "$VIRTUAL_ENV" == "" ]]; then
+            echo "Error: Failed to activate virtual environment."
+            exit 1
+        fi
+        echo "✓ Virtual environment activated"
+        echo ""
     fi
 fi
 

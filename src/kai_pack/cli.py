@@ -52,6 +52,7 @@ def setup_logging(verbose: bool) -> None:
               type=click.Choice(["tiny", "base", "small", "medium", "large", "large-v2", "large-v3", "large-v3-turbo"]),
               help="Whisper model for lyrics transcription (default: small for good speed/accuracy balance)")
 @click.option("--language", default="en", help="Language code for transcription (e.g., 'en', 'es', 'fr', 'de', 'ja') or 'auto' for auto-detection")
+@click.option("--lyrics-url", help="LRCLIB URL for reference lyrics (e.g., https://lrclib.net/api/get/123456)")
 @click.option("--fix-lyrics", is_flag=True, help="Automatically fix lyrics using LLM after processing")
 @click.option("--llm-provider", default="auto", help="LLM provider: openai, lmstudio, anthropic, gemini, openai-compatible (default: auto)")
 @click.option("--llm-model", help="LLM model name (uses provider default if not specified)")
@@ -80,6 +81,7 @@ def main(
     cover: Optional[Path],
     whisper_model: str,
     language: str,
+    lyrics_url: Optional[str],
     fix_lyrics: bool,
     llm_provider: str,
     llm_model: Optional[str],
@@ -124,6 +126,7 @@ def main(
             device=device,
             whisper_model=whisper_model,
             language=language,
+            lyrics_url=lyrics_url,
             use_crepe_filter=crepe_filter,
             silence_threshold=silence_threshold,
             vocal_pitch_type=vocal_pitch_type,
