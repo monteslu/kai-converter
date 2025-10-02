@@ -7,19 +7,20 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 
 import numpy as np
-import librosa
 import scipy.signal
 from scipy.ndimage import median_filter
+import torch
 
 # Suppress warnings from analysis libraries
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 try:
-    import crepe
+    import torchcrepe
     CREPE_AVAILABLE = True
 except ImportError:
     CREPE_AVAILABLE = False
+    torchcrepe = None
     
 try:
     import madmom
@@ -37,9 +38,22 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def hz_to_midi(frequency: float) -> float:
+    """
+    Convert frequency in Hz to MIDI note number.
+
+    Args:
+        frequency: Frequency in Hz
+
+    Returns:
+        MIDI note number (69 = A4 = 440 Hz)
+    """
+    return 12 * np.log2(frequency / 440.0) + 69
+
+
 class MusicalAnalyzer:
     """Handles musical analysis feature extraction."""
-    
+
     def __init__(self, sample_rate: int = 44100, hop_length: int = 512, vocal_pitch_type: str = "midi_cents"):
         self.sample_rate = sample_rate
         self.hop_length = hop_length
@@ -128,26 +142,59 @@ class MusicalAnalyzer:
         return features
         
     def extract_f0(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract F0 contour using CREPE or librosa."""
+        """Extract F0 contour using CREPE (required)."""
         logger.debug("Extracting F0 contour")
-        
-        if CREPE_AVAILABLE:
-            return self._extract_f0_crepe(audio)
-        else:
-            return self._extract_f0_librosa(audio)
+
+        if not CREPE_AVAILABLE:
+            raise RuntimeError(
+                "torchcrepe is required for pitch detection but not installed. "
+                "Install with: pip install torchcrepe"
+            )
+
+        logger.debug("Using CREPE for F0 extraction")
+        return self._extract_f0_crepe(audio)
             
     def _extract_f0_crepe(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract F0 using CREPE."""
         # CREPE step size for 25ms frames (good balance of speed vs accuracy)
         step_size = 25  # 25ms
 
-        time, frequency, confidence, _ = crepe.predict(
-            audio,
+        # Ensure audio is float32 and normalized to [-1, 1] for torchcrepe
+        audio_for_crepe = audio.astype(np.float32)
+        max_val = np.abs(audio_for_crepe).max()
+        if max_val > 1.0:
+            audio_for_crepe = audio_for_crepe / max_val
+
+        # torchcrepe.predict returns (frequency, periodicity) when return_periodicity=True
+        frequency, periodicity = torchcrepe.predict(
+            torch.from_numpy(audio_for_crepe).unsqueeze(0),  # Add batch dimension
             self.sample_rate,
-            step_size=step_size,  # 25ms
-            viterbi=False,  # Skip smoothing for speed
-            model_capacity='tiny'  # Fast model
+            hop_length=int(self.sample_rate * step_size / 1000),  # Convert ms to samples
+            fmin=50,    # Lower limit for vocals (G1 - bass singers)
+            fmax=2000,  # Upper limit for vocals (C7 - includes whistle register)
+            model='tiny',  # Fast model
+            batch_size=2048,
+            device='cpu',  # Use CPU for now (can be made configurable)
+            decoder=torchcrepe.decode.argmax,  # Use argmax instead of viterbi
+            return_periodicity=True  # Returns (frequency, periodicity/confidence)
         )
+
+        # torchcrepe returns tensors, convert to numpy
+        frequency = frequency.squeeze().cpu().numpy()
+        confidence = periodicity.squeeze().cpu().numpy()  # Use periodicity as confidence
+
+        # Generate time array based on hop length
+        num_frames = len(frequency)
+        hop_samples = int(self.sample_rate * step_size / 1000)
+        time = np.arange(num_frames) * hop_samples / self.sample_rate
+
+        # Debug logging
+        vocal_frames = np.sum(frequency > 0)
+        avg_conf = np.mean(confidence[frequency > 0]) if vocal_frames > 0 else 0
+        conf_min = np.min(confidence) if len(confidence) > 0 else 0
+        conf_max = np.max(confidence) if len(confidence) > 0 else 0
+        logger.info(f"    → CREPE results: {num_frames} frames, {vocal_frames} with pitch ({vocal_frames/num_frames*100:.1f}%)")
+        logger.info(f"    → Confidence: min={conf_min:.3f}, max={conf_max:.3f}, avg={avg_conf:.3f}")
 
         # Convert to cents relative to A4 (440 Hz)
         cents = np.zeros_like(frequency)
@@ -160,7 +207,7 @@ class MusicalAnalyzer:
             "cents": cents.tolist(),
             "confidence": confidence.tolist(),
             "hop_ms": step_size,
-            "method": "crepe-tiny"
+            "method": "torchcrepe-tiny"
         }
     
     def detect_key_from_f0(self, f0_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -176,7 +223,7 @@ class MusicalAnalyzer:
         valid_frequencies = frequencies[valid_mask]
         
         # Convert frequencies to MIDI notes (semitones)
-        midi_notes = librosa.hz_to_midi(valid_frequencies)
+        midi_notes = hz_to_midi(valid_frequencies)
         
         # Round to nearest semitone and get pitch classes (0-11)
         pitch_classes = np.round(midi_notes) % 12
@@ -268,8 +315,8 @@ class MusicalAnalyzer:
 
         quant_data = []
         for freq, conf in zip(resampled_freqs, resampled_conf):
-            if freq > 0 and conf > 0.3:  # Confidence threshold
-                midi_note = librosa.hz_to_midi(freq)
+            if freq > 0 and conf > 0.01:  # Confidence threshold (torchcrepe periodicity is typically low)
+                midi_note = hz_to_midi(freq)
                 note = int(np.round(midi_note))
                 cents = int(np.round((midi_note - note) * 100))
                 # Clamp values
@@ -293,7 +340,7 @@ class MusicalAnalyzer:
 
         for i, (freq, conf, time) in enumerate(zip(frequencies, confidence, times)):
             if freq > 0 and conf > 0.3:
-                midi_note = int(np.round(librosa.hz_to_midi(freq)))
+                midi_note = int(np.round(hz_to_midi(freq)))
                 midi_note = int(np.clip(midi_note, 0, 127))
             else:
                 midi_note = 0  # Silence
@@ -326,7 +373,7 @@ class MusicalAnalyzer:
 
         for i, (freq, conf, time) in enumerate(zip(frequencies, confidence, times)):
             if freq > 0 and conf > 0.3:
-                midi_val = librosa.hz_to_midi(freq)
+                midi_val = hz_to_midi(freq)
                 note = int(np.round(midi_val))
                 cents = int(np.round((midi_val - note) * 100))
                 note = int(np.clip(note, 0, 127))
@@ -381,7 +428,7 @@ class MusicalAnalyzer:
         initial_cents = 0
         for freq, conf in zip(resampled_freqs, resampled_conf):
             if freq > 0 and conf > 0.3:
-                midi_val = librosa.hz_to_midi(freq)
+                midi_val = hz_to_midi(freq)
                 initial_note = int(np.round(midi_val))
                 initial_cents = int(np.round((midi_val - initial_note) * 100))
                 initial_note = int(np.clip(initial_note, 0, 127))
@@ -394,7 +441,7 @@ class MusicalAnalyzer:
 
         for freq, conf in zip(resampled_freqs, resampled_conf):
             if freq > 0 and conf > 0.3:
-                midi_val = librosa.hz_to_midi(freq)
+                midi_val = hz_to_midi(freq)
             else:
                 midi_val = 0
 
@@ -413,37 +460,6 @@ class MusicalAnalyzer:
             }
         }
 
-    def _extract_f0_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract F0 using librosa pyin."""
-        f0, voiced_flag, voiced_probs = librosa.pyin(
-            audio,
-            fmin=librosa.note_to_hz('C2'),
-            fmax=librosa.note_to_hz('C7'),
-            sr=self.sample_rate,
-            hop_length=self.hop_length,
-            frame_length=2048
-        )
-        
-        # Convert to cents
-        cents = np.zeros_like(f0)
-        valid_mask = ~np.isnan(f0) & (f0 > 0)
-        cents[valid_mask] = 1200 * np.log2(f0[valid_mask] / 440.0)
-        cents[~valid_mask] = 0
-        
-        times = librosa.frames_to_time(
-            np.arange(len(f0)), 
-            sr=self.sample_rate, 
-            hop_length=self.hop_length
-        )
-        
-        return {
-            "times": times.tolist(),
-            "frequencies": np.nan_to_num(f0).tolist(),
-            "cents": cents.tolist(),
-            "confidence": voiced_probs.tolist(),
-            "hop_ms": (self.hop_length / self.sample_rate) * 1000,
-            "method": "librosa-pyin"
-        }
         
     def extract_notes(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract note segments from F0 contour."""
@@ -474,8 +490,8 @@ class MusicalAnalyzer:
                     # Use median frequency for the note
                     median_freq = np.median(segment_freqs[segment_freqs > 0])
                     if median_freq > 0:
-                        midi_note = librosa.hz_to_midi(median_freq)
-                        cents_offset = (librosa.hz_to_midi(median_freq) - round(midi_note)) * 100
+                        midi_note = hz_to_midi(median_freq)
+                        cents_offset = (hz_to_midi(median_freq) - round(midi_note)) * 100
                         
                         # Calculate vibrato (frequency variation)
                         freq_std = np.std(segment_freqs[segment_freqs > 0])
@@ -523,18 +539,11 @@ class MusicalAnalyzer:
             return self._extract_onsets_librosa(audio)
             
     def _extract_onsets_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract onsets using librosa."""
-        onset_frames = librosa.onset.onset_detect(
-            y=audio,
-            sr=self.sample_rate,
-            hop_length=self.hop_length,
-            units='time'
+        """Extract onsets - librosa removed, madmom required for this feature."""
+        raise RuntimeError(
+            "madmom is required for onset detection. "
+            "Install with: pip install madmom"
         )
-        
-        return {
-            "times": onset_frames.tolist(),
-            "method": "librosa-default"
-        }
         
     def extract_tempo(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract tempo and beat tracking."""
@@ -567,21 +576,11 @@ class MusicalAnalyzer:
             return self._extract_tempo_librosa(audio)
             
     def _extract_tempo_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract tempo using librosa."""
-        tempo, beats = librosa.beat.beat_track(
-            y=audio,
-            sr=self.sample_rate,
-            hop_length=self.hop_length
+        """Extract tempo - librosa removed, madmom required for this feature."""
+        raise RuntimeError(
+            "madmom is required for tempo detection. "
+            "Install with: pip install madmom"
         )
-        
-        beat_times = librosa.frames_to_time(beats, sr=self.sample_rate, hop_length=self.hop_length)
-        
-        return {
-            "bpm": float(tempo),
-            "beats": beat_times.tolist(),
-            "bars": [],  # Simple 4/4 assumption
-            "method": "librosa-default"
-        }
         
     def extract_keys(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract key signature timeline."""
@@ -614,104 +613,25 @@ class MusicalAnalyzer:
             return self._extract_keys_librosa(audio)
             
     def _extract_keys_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract keys using librosa chroma analysis."""
-        # Extract chroma features
-        chroma = librosa.feature.chroma_cqt(
-            y=audio,
-            sr=self.sample_rate,
-            hop_length=self.hop_length
+        """Extract keys - librosa removed, essentia required for this feature."""
+        raise RuntimeError(
+            "essentia is required for key detection. "
+            "Install with: pip install essentia"
         )
-        
-        # Simple key estimation based on chroma energy
-        chroma_mean = np.mean(chroma, axis=1)
-        key_idx = np.argmax(chroma_mean)
-        
-        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        estimated_key = keys[key_idx]
-        
-        return {
-            "segments": [{
-                "start": 0.0,
-                "end": len(audio) / self.sample_rate,
-                "key": estimated_key,
-                "mode": "major",  # Simple assumption
-                "confidence": float(chroma_mean[key_idx])
-            }],
-            "method": "librosa-chroma"
-        }
         
     def extract_chords(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract chord progression."""
-        logger.debug("Extracting chord progression")
-        
-        # Simple chord detection based on chroma
-        chroma = librosa.feature.chroma_cqt(
-            y=audio,
-            sr=self.sample_rate,
-            hop_length=self.hop_length * 4  # Longer hops for chord analysis
+        """Extract chord progression - feature removed."""
+        raise RuntimeError(
+            "Chord detection has been removed. "
+            "This feature was not used in the final KAI files."
         )
-        
-        times = librosa.frames_to_time(
-            np.arange(chroma.shape[1]), 
-            sr=self.sample_rate, 
-            hop_length=self.hop_length * 4
-        )
-        
-        # Very simple chord recognition (just major triads)
-        chord_templates = {
-            'C': [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0],
-            'F': [1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
-            'G': [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1],
-            'Am': [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0],
-            'N': [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # No chord
-        }
-        
-        segments = []
-        for i, frame_chroma in enumerate(chroma.T):
-            # Find best matching chord template
-            best_chord = 'N'
-            best_score = -1
-            
-            for chord_name, template in chord_templates.items():
-                score = np.dot(frame_chroma, template)
-                if score > best_score:
-                    best_score = score
-                    best_chord = chord_name
-                    
-            segments.append({
-                "start": float(times[i]),
-                "end": float(times[i + 1]) if i < len(times) - 1 else len(audio) / self.sample_rate,
-                "chord": best_chord,
-                "confidence": float(best_score)
-            })
-            
-        return {
-            "segments": segments,
-            "method": "librosa-chroma-template"
-        }
         
     def extract_mfcc(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract MFCC features for timbre analysis."""
-        logger.debug("Extracting MFCC features")
-        
-        mfcc = librosa.feature.mfcc(
-            y=audio,
-            sr=self.sample_rate,
-            hop_length=self.hop_length * 8,  # Lower rate for MFCC
-            n_mfcc=13
+        """Extract MFCC features - feature removed."""
+        raise RuntimeError(
+            "MFCC extraction has been removed. "
+            "This feature was not used in the final KAI files."
         )
-        
-        times = librosa.frames_to_time(
-            np.arange(mfcc.shape[1]), 
-            sr=self.sample_rate, 
-            hop_length=self.hop_length * 8
-        )
-        
-        return {
-            "times": times.tolist(),
-            "mfcc": mfcc.T.tolist(),  # (frames, coefficients)
-            "method": "librosa-mfcc"
-        }
         
     def save_features(self, features: Dict[str, Any], output_dir: Path) -> Dict[str, Path]:
         """Save extracted features to JSON files."""

@@ -6,7 +6,6 @@ import tempfile
 from pathlib import Path
 from typing import Tuple, Dict, Any, Optional
 
-import librosa
 import numpy as np
 import pyloudnorm as pyln
 import soundfile as sf
@@ -27,61 +26,70 @@ class AudioProcessor:
     def load_and_preprocess(self, input_path: Path) -> Tuple[np.ndarray, Dict[str, Any]]:
         """
         Load audio file and preprocess to standard format.
-        
+
         Args:
             input_path: Path to input audio file
-            
+
         Returns:
             Tuple of (audio_data, metadata)
             audio_data: stereo float32 audio at target sample rate
             metadata: dict with original file info and processing stats
         """
         logger.info(f"Loading audio from {input_path}")
-        
-        # Load audio with librosa for format flexibility
+
+        # Use ffmpeg to load audio and convert to target format
         try:
-            audio, orig_sr = librosa.load(
-                input_path, 
-                sr=None,  # Keep original sample rate initially
-                mono=False  # Keep stereo if available
-            )
-            
-            # Ensure we have 2D array (channels, samples)
-            if audio.ndim == 1:
-                # Mono to stereo
-                audio = np.stack([audio, audio])
-            elif audio.shape[0] > 2:
-                # Multi-channel to stereo (mix down)
-                logger.warning(f"Input has {audio.shape[0]} channels, mixing down to stereo")
-                audio = librosa.to_mono(audio)
-                audio = np.stack([audio, audio])
-                
+            # Create temporary WAV file for intermediate processing
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
+                tmp_wav = Path(tmp_file.name)
+
+            # First, get original sample rate using ffprobe
+            cmd_probe = [
+                "ffprobe", "-v", "quiet", "-show_entries",
+                "stream=sample_rate,channels", "-of", "csv=p=0", str(input_path)
+            ]
+            result = subprocess.run(cmd_probe, capture_output=True, text=True, check=True)
+            probe_output = result.stdout.strip().split(',')
+            orig_sr = int(probe_output[0])
+            orig_channels = int(probe_output[1])
+
+            # Convert to WAV at target sample rate with stereo output
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(input_path),
+                "-ar", str(self.sample_rate),
+                "-ac", "2",  # Force stereo
+                "-f", "wav",
+                str(tmp_wav)
+            ]
+
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            # Load the converted WAV file
+            audio, load_sr = sf.read(tmp_wav)
+
+            # Clean up temp file
+            tmp_wav.unlink()
+
+            # Convert to (channels, samples) format
+            audio = audio.T
+
         except Exception as e:
             raise RuntimeError(f"Failed to load audio file {input_path}: {e}")
-            
-        logger.info(f"Loaded audio: {audio.shape} at {orig_sr} Hz")
-        
-        # Resample if needed
-        if orig_sr != self.sample_rate:
-            logger.info(f"Resampling from {orig_sr} Hz to {self.sample_rate} Hz")
-            audio = librosa.resample(
-                audio, 
-                orig_sr=orig_sr, 
-                target_sr=self.sample_rate,
-                axis=1
-            )
-            
+
+        logger.info(f"Loaded audio: {audio.shape} at {orig_sr} Hz -> {self.sample_rate} Hz")
+
         # Normalize loudness
         audio_normalized, loudness_stats = self._normalize_loudness(audio)
-        
+
         metadata = {
             "original_sample_rate": orig_sr,
             "target_sample_rate": self.sample_rate,
-            "original_channels": audio.shape[0],
+            "original_channels": orig_channels,
             "duration_seconds": audio_normalized.shape[1] / self.sample_rate,
             "loudness_stats": loudness_stats
         }
-        
+
         return audio_normalized, metadata
         
     def _normalize_loudness(self, audio: np.ndarray) -> Tuple[np.ndarray, Dict[str, float]]:

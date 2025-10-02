@@ -45,7 +45,7 @@ class KaiProcessor:
         self.verbose = verbose
         self.language = language
         self.lyrics_url = lyrics_url
-        
+
         # Initialize components
         self.audio_processor = AudioProcessor(sample_rate=sample_rate)
         self.stem_separator = StemSeparator(
@@ -55,15 +55,18 @@ class KaiProcessor:
             overlap=overlap
         )
         self.lyrics_transcriber = LyricsTranscriber(
-            sample_rate=sample_rate, 
-            model_name=whisper_model, 
-            language=language, 
+            sample_rate=sample_rate,
+            model_name=whisper_model,
+            language=language,
             device=device,
             use_crepe_filter=use_crepe_filter,
             silence_threshold=silence_threshold
         )
         self.metadata_extractor = MetadataExtractor()
-        self.musical_analyzer = MusicalAnalyzer(sample_rate=sample_rate, vocal_pitch_type=vocal_pitch_type)
+        self.musical_analyzer = MusicalAnalyzer(
+            sample_rate=sample_rate,
+            vocal_pitch_type=vocal_pitch_type
+        )
         self.song_json_generator = SongJsonGenerator()
         self.packager = KaiPackager()
         

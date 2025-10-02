@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional
 
 import numpy as np
-import librosa
 from scipy.spatial.distance import cdist
 from dtw import dtw
 from phonemizer import phonemize

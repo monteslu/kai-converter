@@ -8,7 +8,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
 import numpy as np
-import librosa
 import soundfile as sf
 import torch
 
@@ -100,7 +99,7 @@ class LyricsTranscriber:
         self.model_name = model_name
         self.language = language
         self.model = None
-        
+
         # Auto-detect device if not specified
         if device is None:
             if torch.cuda.is_available():
@@ -111,10 +110,10 @@ class LyricsTranscriber:
                 self.device = "cpu"
         else:
             self.device = device
-            
+
         self.use_crepe_filter = use_crepe_filter
         self.silence_threshold = silence_threshold
-        
+
         logger.info(f"Using Whisper device: {self.device}")
         logger.info(f"CREPE filtering: {'enabled' if use_crepe_filter else 'disabled'}")
         logger.info(f"Silence threshold: {silence_threshold} dB")
@@ -556,21 +555,21 @@ class LyricsTranscriber:
     def _transcribe_full_audio(self, vocals_audio: np.ndarray, initial_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Fallback method: transcribe full audio without chunking."""
         logger.info("Using full audio transcription (no chunking)")
-        
+
         # TEMPORARY FIX: Save vocals to temp file and let Whisper load it directly
         # This bypasses our broken audio preprocessing pipeline
         import tempfile
         import soundfile as sf
-        
+
         logger.info("Creating temporary vocals file for Whisper to process directly")
-        
+
         # Convert stereo to mono properly
         if vocals_audio.shape[0] == 2:
             vocals_mono = np.mean(vocals_audio, axis=0)
         else:
             vocals_mono = vocals_audio[0]
-        
-        # Save to temporary WAV file
+
+        # Save to temporary WAV file (Whisper will handle any needed resampling internally)
         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
             temp_vocals_path = temp_file.name
             sf.write(temp_vocals_path, vocals_mono, self.sample_rate)
