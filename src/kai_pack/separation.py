@@ -113,16 +113,25 @@ class StemSeparator:
         # Apply the model with progress callback
         with torch.no_grad():
             if progress_callback:
-                # Monkey-patch tqdm temporarily to capture progress
+                # Monkey-patch tqdm module temporarily to capture progress
                 import demucs.apply
-                original_tqdm = demucs.apply.tqdm
+                import types
 
+                # Save original tqdm module
+                original_tqdm_module = demucs.apply.tqdm
+
+                # Create a wrapper function
                 def tqdm_wrapper(*args, **kwargs):
                     kwargs['file'] = None  # Disable output to stdout
+                    kwargs['disable'] = False
                     return TqdmCallback(*args, callback=progress_callback, **kwargs)
 
+                # Create a fake module with tqdm attribute
+                fake_module = types.SimpleNamespace(tqdm=tqdm_wrapper)
+
                 try:
-                    demucs.apply.tqdm = tqdm_wrapper
+                    # Replace the tqdm module in demucs.apply
+                    demucs.apply.tqdm = fake_module
                     sources = apply_model(
                         self.model,
                         audio_tensor,
@@ -133,7 +142,7 @@ class StemSeparator:
                         progress=True
                     )
                 finally:
-                    demucs.apply.tqdm = original_tqdm
+                    demucs.apply.tqdm = original_tqdm_module
             else:
                 sources = apply_model(
                     self.model,
