@@ -68,11 +68,9 @@ app.whenReady().then(() => {
   });
 });
 
-// Quit when all windows are closed (except macOS)
+// Quit when all windows are closed (ALL platforms - no background running)
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  app.quit(); // Always quit - don't run in background
 });
 
 // IPC Handlers
