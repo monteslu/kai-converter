@@ -1835,6 +1835,396 @@ Keep separate docs:
 
 ---
 
+## GUI Design & User Experience
+
+### Application Structure
+
+**4-Tab Interface** with setup wizard on first launch:
+
+1. **Setup Wizard** (first launch only, blocking)
+2. **🎵 Convert** (main tab - single file conversion)
+3. **📦 Batch** (batch folder processing)
+4. **🔧 Settings** (configuration & model management)
+5. **ℹ️ About** (info, help, system status)
+
+---
+
+### Setup Wizard (First Launch)
+
+Multi-step wizard that runs once before main app loads.
+
+**Design Philosophy:**
+- **Blocking** - must complete before using app
+- **Required downloads only** - PyTorch, Demucs, one Whisper model
+- **User choice** - GPU vs CPU, Whisper model size
+- **Progress transparency** - clear download progress, checksums
+- **Resumable** - can retry failed downloads
+
+**Flow:**
+
+#### Step 1: System Check
+```
+┌─────────────────────────────────────────┐
+│  KAI Converter Setup                    │
+├─────────────────────────────────────────┤
+│                                         │
+│  Step 1/3: System Check                │
+│                                         │
+│  ✓ Python runtime                      │
+│  ✓ FFmpeg                              │
+│  ✓ Core dependencies                   │
+│  ⚠ PyTorch: Not installed              │
+│  ⚠ Demucs models: Not installed        │
+│  ⚠ Whisper models: Not installed       │
+│                                         │
+│  Checking system requirements...        │
+│                                         │
+│         [Continue to Downloads]        │
+└─────────────────────────────────────────┘
+```
+
+#### Step 2: Model Selection
+```
+┌─────────────────────────────────────────┐
+│  Step 2/3: Choose Models                │
+├─────────────────────────────────────────┤
+│                                         │
+│  GPU Detected: NVIDIA RTX 3080          │
+│  □ Download CUDA PyTorch (+2GB)        │
+│     Enables GPU acceleration            │
+│                                         │
+│  Whisper Model (required):              │
+│  ○ tiny (75MB) - Fastest               │
+│  ○ base (150MB)                        │
+│  ● small (500MB) ⭐ Recommended        │
+│  ○ medium (1.5GB)                      │
+│  ○ large-v3 (3GB) - Best quality       │
+│                                         │
+│  Demucs: htdemucs_ft (350MB) ✓         │
+│  (Required - no alternatives)           │
+│                                         │
+│  Total download: 850MB                  │
+│  Available space: 45GB                  │
+│                                         │
+│    [Back]  [Download & Continue]       │
+└─────────────────────────────────────────┘
+```
+
+#### Step 3: Downloading
+```
+┌─────────────────────────────────────────┐
+│  Step 3/3: Downloading Models...        │
+├─────────────────────────────────────────┤
+│                                         │
+│  PyTorch CPU ████████░░░ 80%           │
+│  Demucs Model ███████████████ 100%     │
+│  Whisper small ███░░░░░░░ 25%          │
+│                                         │
+│  Overall: 68% (580MB / 850MB)          │
+│  Speed: 8.5 MB/s - 32s remaining       │
+│                                         │
+│  Verifying checksums...                 │
+│                                         │
+│              [Cancel Setup]             │
+└─────────────────────────────────────────┘
+```
+
+#### Step 4: Complete
+```
+┌─────────────────────────────────────────┐
+│  Setup Complete! ✓                      │
+├─────────────────────────────────────────┤
+│                                         │
+│  ✓ PyTorch CPU installed               │
+│  ✓ Demucs model ready                  │
+│  ✓ Whisper small ready                 │
+│                                         │
+│  You can now convert audio to KAI!     │
+│                                         │
+│  Tip: Download additional Whisper      │
+│  models in Settings → Models            │
+│                                         │
+│           [Start Using KAI Converter]   │
+└─────────────────────────────────────────┘
+```
+
+---
+
+### Tab 1: 🎵 Convert (Main Tab)
+
+**Primary workflow - drag & drop single file conversion**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎵 Convert  |  📦 Batch  |  🔧 Settings  |  ℹ️ About    │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Drop audio file here or click to browse               │
+│  ┌────────────────────────────────────────────────┐   │
+│  │                                                 │   │
+│  │              🎵 Drop audio file                │   │
+│  │                                                 │   │
+│  │        Supported: MP3, WAV, FLAC, M4A, OGG    │   │
+│  │                                                 │   │
+│  └────────────────────────────────────────────────┘   │
+│                                                         │
+│  Selected: song.mp3 (4.2 MB)                           │
+│                                                         │
+│  ┌─── Processing Options ──────────────────────────┐  │
+│  │                                                  │  │
+│  │  Whisper Model:  [small ▼]                     │  │
+│  │  Language:       [Auto-detect ▼]               │  │
+│  │  Stems:          ○ 2-stem (vocals+music)       │  │
+│  │                  ○ 4-stem (vocals/bass/drums/other)  │
+│  │                                                  │  │
+│  └──────────────────────────────────────────────────┘  │
+│                                                         │
+│                    [Convert to KAI]                     │
+│                                                         │
+│  When processing, shows inline progress:                │
+│  Step 3/5: Transcribing lyrics...                      │
+│  ████████████████░░░░ 75% - 45s remaining              │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- **Drag & drop zone** - primary interaction (click to browse as fallback)
+- **Minimal options** - defaults work for most users
+- **Inline progress** - no separate window/modal
+- **Smart output** - saves .kai next to input file by default
+
+---
+
+### Tab 2: 📦 Batch
+
+**Batch folder processing for albums/collections**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎵 Convert  |  📦 Batch  |  🔧 Settings  |  ℹ️ About    │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  Select folder: [/Users/me/Music/Album] 📁 Browse      │
+│                                                         │
+│  ┌─── Files to Process (12 found) ──────────────────┐  │
+│  │  ☑ 01 - Track One.mp3           ⏳ Pending      │  │
+│  │  ☑ 02 - Track Two.mp3           ⏳ Pending      │  │
+│  │  ☐ 03 - Track Three.kai         ⏭️ Skip (exists)│  │
+│  │  ☑ 04 - Track Four.mp3          ⏳ Pending      │  │
+│  │  ☑ 05 - Track Five.mp3          ⏳ Pending      │  │
+│  │  ... (7 more)                                    │  │
+│  │                                                   │  │
+│  │  Selected: 11 files (45.2 MB)                   │  │
+│  └──────────────────────────────────────────────────┘  │
+│                                                         │
+│  ⚙️ Apply to all:                                       │
+│  Whisper: [small ▼]  Language: [auto ▼]  Stems: [2 ▼] │
+│                                                         │
+│  ☑ Skip existing KAI files                             │
+│  ☑ Continue on error                                   │
+│                                                         │
+│     [▶️ Start Batch]  [⏸️ Pause]  [⏹️ Stop]            │
+│                                                         │
+│  Processing: Track 3/11 (27%)  ████████░░░░░░░        │
+│  Current: 02 - Track Two.mp3                           │
+│    └─ Transcribing lyrics (68%) - 1m 20s remaining     │
+│  Estimated total time: 18 minutes                      │
+│                                                         │
+│  Results: ✓ 2 complete | ⏳ 1 processing | ⏸️ 8 pending  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- **Folder scanning** - finds all supported audio files
+- **Selective processing** - checkboxes to include/exclude files
+- **Smart skip** - auto-skip existing .kai files
+- **Batch controls** - play, pause, stop
+- **Live progress** - overall + current file detail
+- **Results tracking** - success/fail/pending counts
+
+---
+
+### Tab 3: 🔧 Settings
+
+**Configuration with collapsible sections**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎵 Convert  |  📦 Batch  |  🔧 Settings  |  ℹ️ About    │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ▼ 🎤 Models & Performance                              │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  Default Whisper Model:  [small ▼]            │   │
+│  │  Default Language:       [Auto-detect ▼]      │   │
+│  │  Default Stems:          [2-stem ▼]           │   │
+│  │                                                │   │
+│  │  GPU Acceleration:                             │   │
+│  │  ● Auto-detect (CUDA found)                   │   │
+│  │  ○ Force CPU                                   │   │
+│  │  ○ Force GPU                                   │   │
+│  └────────────────────────────────────────────────┘   │
+│                                                         │
+│  ▼ 📦 Model Management                                  │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  Installed Models:                             │   │
+│  │  ✓ Whisper small (488 MB)      [Remove]       │   │
+│  │  ✓ Demucs htdemucs_ft (350 MB) [Required]     │   │
+│  │  ✓ PyTorch CPU (150 MB)         [Remove]      │   │
+│  │                                                │   │
+│  │  Available to Download:                        │   │
+│  │  ⬇️ Whisper tiny (75 MB)       [Download]     │   │
+│  │  ⬇️ Whisper large-v3 (3 GB)    [Download]     │   │
+│  │  ⬇️ PyTorch CUDA (2.5 GB)      [Download]     │   │
+│  └────────────────────────────────────────────────┘   │
+│                                                         │
+│  ▼ 💾 Output & Storage                                  │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  Default Output Location:                      │   │
+│  │  ● Same as input file                          │   │
+│  │  ○ Custom: [~/Music/KAI] 📁 Browse            │   │
+│  │                                                │   │
+│  │  Model Cache Location:                         │   │
+│  │  ~/Library/Caches/KAI-Converter                │   │
+│  │  Total Size: 988 MB                            │   │
+│  │  [Clear Cache] [Change Location]               │   │
+│  └────────────────────────────────────────────────┘   │
+│                                                         │
+│  ▼ 🎨 Appearance                                        │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  Theme: ● Dark  ○ Light  ○ Auto               │   │
+│  └────────────────────────────────────────────────┘   │
+│                                                         │
+│  ▼ 🔧 Advanced                                          │
+│  ┌────────────────────────────────────────────────┐   │
+│  │  ☐ Enable debug logging                       │   │
+│  │  ☐ Keep intermediate files                    │   │
+│  │  Log location: ~/Library/Logs/KAI-Converter    │   │
+│  │  [Open Logs Folder]                            │   │
+│  └────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Settings Categories:**
+1. **Models & Performance** - Defaults, GPU settings
+2. **Model Management** - Install/remove models
+3. **Output & Storage** - Output location, cache management
+4. **Appearance** - Dark/light/auto theme
+5. **Advanced** - Logging, debug, intermediate files
+
+---
+
+### Tab 4: ℹ️ About
+
+**Version info, links, help, system status**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  🎵 Convert  |  📦 Batch  |  🔧 Settings  |  ℹ️ About    │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│                 🎵 KAI Converter v1.0.0                 │
+│                                                         │
+│     AI-powered karaoke file creator with source         │
+│          separation and lyrics transcription            │
+│                                                         │
+│  ────────────────────────────────────────────────────  │
+│                                                         │
+│  📖 User Guide          → [Open Documentation]          │
+│  🐛 Report Bug          → [GitHub Issues]               │
+│  ⭐ Star on GitHub      → [github.com/user/repo]       │
+│  💬 Discussions         → [GitHub Discussions]          │
+│                                                         │
+│  ────────────────────────────────────────────────────  │
+│                                                         │
+│  System Information:                                    │
+│  • OS: macOS 14.0 (Apple Silicon)                      │
+│  • Python: 3.11.5                                       │
+│  • PyTorch: 2.1.0 (MPS)                                │
+│  • FFmpeg: 6.0                                         │
+│  • GPU: Apple M2 Pro (MPS enabled)                     │
+│  • Installed Models: Whisper small, Demucs             │
+│                                                         │
+│  ────────────────────────────────────────────────────  │
+│                                                         │
+│  Quick Tips:                                            │
+│  • Drag & drop audio files to the Convert tab          │
+│  • Use "small" Whisper model for best speed/quality    │
+│  • Enable GPU for 3-5x faster processing               │
+│  • Batch mode skips existing KAI files automatically   │
+│                                                         │
+│  [Check for Updates]  [View Changelog]  [Show Logs]    │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Features:**
+- **Branding** - App name, version, tagline
+- **Quick links** - docs, GitHub, issues, discussions
+- **System info** - versions, GPU status, installed models
+- **Quick tips** - help new users get started
+- **Utility buttons** - updates, changelog, logs
+
+---
+
+### Processing Progress Modal
+
+When converting, show overlay with detailed progress:
+
+```
+┌─────────────────────────────────────────┐
+│  Converting song.mp3 → song.kai         │
+├─────────────────────────────────────────┤
+│                                         │
+│  Step 3/5: Transcribing lyrics...       │
+│  ████████████████░░░░ 75%               │
+│                                         │
+│  Whisper processing: 48s elapsed        │
+│  Estimated: 16s remaining                │
+│                                         │
+│  [View Details ▼]  [Cancel]            │
+│                                         │
+│  ▼ Details:                             │
+│  ✓ Loading audio (0.2s)                │
+│  ✓ Extracting metadata (0.1s)          │
+│  ✓ Separating stems (18.3s)            │
+│  ⏳ Transcribing lyrics (48.2s...)     │
+│  ⏳ Packaging KAI file                  │
+└─────────────────────────────────────────┘
+```
+
+**Progress Steps:**
+1. Loading audio
+2. Extracting metadata
+3. Separating stems (Demucs)
+4. Transcribing lyrics (Whisper)
+5. Packaging KAI file
+
+---
+
+### Notification Toasts
+
+Quick feedback messages (bottom-right corner):
+
+```
+┌────────────────────────────────┐
+│ ✅ song.kai created!           │
+│    Processing took 2m 15s      │
+└────────────────────────────────┘
+
+┌────────────────────────────────┐
+│ ⚠️ Download failed             │
+│    Check your connection       │
+│    [Retry]                     │
+└────────────────────────────────┘
+
+┌────────────────────────────────┐
+│ ℹ️ Using CPU mode              │
+│    GPU not detected            │
+└────────────────────────────────┘
+```
+
+---
+
 ## Development Plan
 
 ### Overview
