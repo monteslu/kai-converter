@@ -15,6 +15,7 @@ export default function ConvertScreen() {
   const [referenceLyrics, setReferenceLyrics] = useState(null);
   const [manualLyrics, setManualLyrics] = useState('');
   const [showLyricsInput, setShowLyricsInput] = useState(false);
+  const [showLyricsDisplay, setShowLyricsDisplay] = useState(false);
   const fileInputRef = useRef(null);
 
   // Load settings on mount
@@ -29,8 +30,6 @@ export default function ConvertScreen() {
         setWhisperModel(settings.whisperModel || 'large-v3-turbo');
         setLanguage(settings.language || 'auto');
         setFourStems(settings.stems === 4);
-        // Store LLM settings for later use
-        window._kaiLlmSettings = settings.llm;
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -60,6 +59,7 @@ export default function ConvertScreen() {
     setReferenceLyrics(null);
     setManualLyrics('');
     setShowLyricsInput(false);
+    setShowLyricsDisplay(false);
 
     // Auto-generate output file path
     const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
@@ -147,8 +147,9 @@ export default function ConvertScreen() {
     });
 
     try {
-      // Get LLM settings from stored state
-      const llmSettings = window._kaiLlmSettings || {};
+      // Reload LLM settings to pick up any changes made in Settings screen
+      const settings = await window.electronAPI.loadSettings();
+      const llmSettings = settings.llm || {};
 
       const options = {
         inputFile,
@@ -157,6 +158,7 @@ export default function ConvertScreen() {
         language: language === 'auto' ? 'en' : language,
         fourStems,
         features: ['f0', 'tempo'],  // Enable musical analysis by default
+        referenceLyrics: referenceLyrics || null,  // Pass pre-fetched lyrics to avoid second lookup
         llm: {
           enabled: llmSettings.enabled !== undefined ? llmSettings.enabled : true,
           provider: llmSettings.provider || null,
@@ -200,6 +202,12 @@ export default function ConvertScreen() {
   function getProgressMessage() {
     if (!progress) return '';
     return progress.message || progress.stage || '';
+  }
+
+  // Check if we're in Whisper transcription (indeterminate progress)
+  function isWhisperStage() {
+    if (!progress) return false;
+    return progress.stage === 'step_4' || progress.message?.includes('Transcribing');
   }
 
   return (
@@ -255,9 +263,26 @@ export default function ConvertScreen() {
             </p>
           )}
           {lyricsStatus === 'found' && (
-            <p className="text-sm text-green-600 dark:text-green-400">
-              ✓ Found reference lyrics - will improve transcription accuracy
-            </p>
+            <div>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  ✓ Found reference lyrics - will improve transcription accuracy
+                </p>
+                <button
+                  onClick={() => setShowLyricsDisplay(!showLyricsDisplay)}
+                  className="text-sm px-3 py-1 text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {showLyricsDisplay ? 'Hide lyrics' : 'Show lyrics'}
+                </button>
+              </div>
+              {showLyricsDisplay && referenceLyrics && (
+                <div className="mt-3 border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-800/50">
+                  <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                    {referenceLyrics}
+                  </pre>
+                </div>
+              )}
+            </div>
           )}
           {lyricsStatus === 'not-found' && (
             <div>
@@ -419,13 +444,25 @@ export default function ConvertScreen() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm mb-1">
               <span>{getProgressMessage()}</span>
-              <span>{Math.round(getProgressPercent())}%</span>
+              {!isWhisperStage() && <span>{Math.round(getProgressPercent())}%</span>}
             </div>
             <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              <div
-                className="h-2 bg-blue-600 rounded-full transition-all"
-                style={{ width: `${getProgressPercent()}%` }}
-              />
+              {isWhisperStage() ? (
+                <div className="h-2 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 rounded-full animate-pulse bg-[length:200%_100%]"
+                     style={{ animation: 'pulse 1.5s ease-in-out infinite, shimmer 2s linear infinite', width: '100%' }}>
+                  <style>{`
+                    @keyframes shimmer {
+                      0% { background-position: -200% 0; }
+                      100% { background-position: 200% 0; }
+                    }
+                  `}</style>
+                </div>
+              ) : (
+                <div
+                  className="h-2 bg-blue-600 rounded-full transition-all"
+                  style={{ width: `${getProgressPercent()}%` }}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -441,16 +478,30 @@ export default function ConvertScreen() {
             <p className="text-gray-700 dark:text-gray-300">
               <strong>Output file:</strong> {result.output_file}
             </p>
-            {result.processing_time && (
+            {result.processing_time && result.input_info && (
               <p className="text-gray-600 dark:text-gray-400">
-                Processing time: {Math.round(result.processing_time)}s
+                Song duration: {Math.round(result.input_info.duration_seconds)}s |
+                Processing time: {Math.round(result.processing_time)}s |
+                Speed: {Math.round((result.input_info.duration_seconds / result.processing_time) * 100)}%
               </p>
             )}
             {result.stats && (
               <div className="mt-2 text-gray-600 dark:text-gray-400">
                 <p>Stems: {fourStems ? '4 (vocals, drums, bass, other)' : '2 (vocals, music)'}</p>
                 {result.stats.lines > 0 && (
-                  <p>Lyrics: {result.stats.lines} lines transcribed</p>
+                  <p>
+                    Lyrics: {result.stats.lines} lines transcribed
+                    {result.llm_stats && result.llm_stats.failed && (
+                      <span className="ml-2 text-red-600 dark:text-red-400">
+                        (AI correction failed: {result.llm_stats.error || 'Unknown error'})
+                      </span>
+                    )}
+                    {result.llm_stats && !result.llm_stats.failed && (
+                      <span className={`ml-2 ${result.llm_stats.corrections_applied > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                        (AI: {result.llm_stats.corrections_applied} corrected, {result.llm_stats.suggestions_made} suggestions, {result.llm_stats.corrections_rejected} rejected)
+                      </span>
+                    )}
+                  </p>
                 )}
               </div>
             )}

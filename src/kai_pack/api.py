@@ -80,6 +80,7 @@ class KaiAPI:
         artist: Optional[str] = None,
         cover_art: Optional[str] = None,
         lyrics_url: Optional[str] = None,
+        reference_lyrics: Optional[str] = None,
         use_crepe_filter: bool = False,
         silence_threshold: int = -20,
         vocal_pitch_type: str = "midi_cents",
@@ -192,6 +193,7 @@ class KaiAPI:
                 whisper_model=whisper_model,
                 language=language,
                 lyrics_url=lyrics_url,
+                reference_lyrics=reference_lyrics,
                 use_crepe_filter=use_crepe_filter,
                 silence_threshold=silence_threshold,
                 vocal_pitch_type=vocal_pitch_type,
@@ -217,11 +219,14 @@ class KaiAPI:
             )
 
             # Apply LLM lyric correction if enabled
+            llm_stats = None
             if llm_enabled and llm_provider:
                 self._emit_progress("llm_correction", 95, "Applying AI lyric correction...")
                 logger.info("LLM correction enabled, running fix_lyrics...")
 
                 try:
+                    import tempfile
+                    import os
                     from utils.fix_lyrics import fix_lyrics_direct
 
                     # Map GUI provider names to fix_lyrics provider names
@@ -234,10 +239,19 @@ class KaiAPI:
 
                     fix_provider = provider_map.get(llm_provider, llm_provider)
 
+                    # Save reference lyrics to temp file if available (avoids third LRCLIB lookup)
+                    lyrics_source_file = None
+                    if reference_lyrics:
+                        lyrics_temp_fd, lyrics_source_file = tempfile.mkstemp(suffix='.txt', prefix='reference_lyrics_')
+                        with open(lyrics_source_file, 'w', encoding='utf-8') as f:
+                            f.write(reference_lyrics)
+                        os.close(lyrics_temp_fd)
+                        logger.info(f"Using pre-fetched lyrics for LLM correction: {lyrics_source_file}")
+
                     # Call fix_lyrics_direct on the output KAI file
                     fix_result = fix_lyrics_direct(
                         kai_file=output_path,
-                        lyrics_source=None,  # Auto-fetch based on metadata
+                        lyrics_source=lyrics_source_file,  # Use pre-fetched lyrics
                         output=output_path,  # Overwrite the original file
                         llm_provider=fix_provider,
                         llm_model=llm_model,
@@ -246,20 +260,45 @@ class KaiAPI:
                         progress_callback=self.progress_callback
                     )
 
+                    # Clean up temp file
+                    if lyrics_source_file:
+                        try:
+                            os.unlink(lyrics_source_file)
+                        except Exception as e:
+                            logger.warning(f"Failed to clean up temp lyrics file: {e}")
+
                     if fix_result.get("success"):
                         logger.info(f"LLM correction applied: {fix_result.get('corrections_applied', 0)} corrections")
+                        llm_stats = {
+                            "corrections_applied": fix_result.get("corrections_applied", 0),
+                            "suggestions_made": fix_result.get("suggestions_made", 0),
+                            "corrections_rejected": fix_result.get("corrections_rejected", 0),
+                            "failed": False
+                        }
                     else:
                         logger.warning(f"LLM correction failed: {fix_result.get('error', 'Unknown error')}")
-                        # Don't fail the entire process if LLM correction fails
+                        llm_stats = {
+                            "corrections_applied": 0,
+                            "suggestions_made": 0,
+                            "corrections_rejected": 0,
+                            "failed": True,
+                            "error": fix_result.get("error", "Unknown error")
+                        }
 
                 except Exception as e:
                     logger.error(f"LLM correction error: {e}")
-                    # Don't fail the entire process if LLM correction fails
+                    llm_stats = {
+                        "corrections_applied": 0,
+                        "suggestions_made": 0,
+                        "corrections_rejected": 0,
+                        "failed": True,
+                        "error": str(e)
+                    }
 
             self._emit_progress("complete", 100, "Processing complete!")
 
             # Return structured success result
-            return {
+            response = {
                 "success": True,
                 "output_file": str(output_path),
                 "processing_time": result.get("processing_time_seconds", 0),
@@ -272,6 +311,11 @@ class KaiAPI:
                 "input_info": result.get("input_info", {}),
                 "validation": result.get("validation", {})
             }
+
+            if llm_stats:
+                response["llm_stats"] = llm_stats
+
+            return response
 
         except FileNotFoundError as e:
             error_msg = f"File not found: {str(e)}"

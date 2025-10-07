@@ -349,12 +349,15 @@ REQUIRED JSON FORMAT:
 
 !!!!! JSON VALIDATION REQUIREMENTS !!!!!
 - Start response with {{ (opening brace)
-- End response with }} (closing brace) 
-- All strings must be in double quotes
+- End response with }} (closing brace)
+- ALL property names MUST be in double quotes (e.g., "corrections": not corrections:)
+- ALL string values must be in double quotes
 - Escape any quotes in text with \"
-- Use valid JSON syntax only
+- Use STRICT JSON syntax only (NOT JavaScript object notation)
 - Do not include markdown formatting
 - Do not wrap in code blocks
+- Example of CORRECT format: {{"corrections": [{{"line_num": 1}}]}}
+- Example of WRONG format: {{corrections: [{{line_num: 1}}]}} (missing quotes on property names)
 
 IMPORTANT ABOUT MISSING LINES:
 - ONLY suggest missing lines if you have strong evidence from:
@@ -370,49 +373,11 @@ IMPORTANT ABOUT MISSING LINES:
 CRITICAL: Only include lines that actually need correction in the corrections array.
 CRITICAL: Only suggest missing lines where you have evidence from pitch/reference/timing.
 CRITICAL: Return ONLY valid JSON, no explanations, no markdown blocks, no additional text.
+CRITICAL: ALL property names must be quoted: "corrections" NOT corrections, "line_num" NOT line_num
 
 JSON OUTPUT:"""
     
     return prompt
-
-def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10, song_data=None, kai_file_path=None):
-    """Process lyrics in smaller chunks to avoid token limits"""
-    if len(transcribed_lines) <= chunk_size:
-        # Small enough to process in one go
-        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
-    
-    print(f"Processing {len(transcribed_lines)} lines in chunks of {chunk_size}...")
-    
-    # Process in chunks
-    corrected_lines = []
-    all_rejections = []
-    for i in range(0, len(transcribed_lines), chunk_size):
-        chunk = transcribed_lines[i:i+chunk_size]
-        chunk_end = min(i+chunk_size, len(transcribed_lines))
-        print(f"\n=== Processing chunk: lines {i+1}-{chunk_end} ===")
-        
-        # Show what's in this chunk
-        for j, line in enumerate(chunk):
-            print(f"  Line {i+j+1}: {line.get('text', '')[:50]}...")
-        
-        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
-        if correction_result and len(correction_result) == 3:
-            corrected_chunk, chunk_rejections, chunk_missing = correction_result
-            if corrected_chunk is not None:
-                corrected_lines.extend(corrected_chunk)
-                all_rejections.extend(chunk_rejections)
-                # Note: We don't aggregate missing lines from chunks - they're per-song level
-            else:
-                # If correction fails, keep original
-                print(f"  WARNING: Chunk correction returned None, keeping original")
-                corrected_lines.extend(chunk)
-        else:
-            # If correction fails, keep original
-            print(f"  WARNING: Chunk correction failed, keeping original")
-            corrected_lines.extend(chunk)
-    
-    return corrected_lines, all_rejections, []
-
 
 def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, song_data=None, kai_file_path=None):
     """Send to LLM API to fix lyrics - simplified working version."""
@@ -482,44 +447,23 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
         start_time = time.time()
 
         messages = [
-            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data."},
+            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data. You MUST return ONLY valid JSON with ALL property names in double quotes. Use strict JSON format, NOT JavaScript object notation."},
             {"role": "user", "content": prompt}
         ]
 
         response_text = provider.complete_chat(messages, model=model, temperature=0.1)
         elapsed = time.time() - start_time
-        print(f"Received response from {provider_type} in {elapsed:.1f} seconds")
 
-        # Log FULL response for debugging
-        print(f"Response length: {len(response_text)} characters")
-        print(f"=== FULL RAW RESPONSE FROM {provider_type.upper()} ===")
-        print(response_text)
-        print("=" * 50)
+        # Check if provider captured the actual model used (for local providers)
+        actual_model = getattr(provider, 'last_model_used', None) or model
 
-        # Clean up response if needed (remove markdown blocks)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
+        # Store actual model in llm_config for error reporting
+        if llm_config:
+            llm_config['_actual_model_used'] = actual_model
 
-        # Try to extract just the JSON object from the response
-        response_text = response_text.strip()
-        start_idx = response_text.find('{')
-        if start_idx != -1:
-            # Find the matching closing brace
-            brace_count = 0
-            end_idx = start_idx
-            for i, char in enumerate(response_text[start_idx:], start_idx):
-                if char == '{':
-                    brace_count += 1
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        end_idx = i
-                        break
-            response_text = response_text[start_idx:end_idx+1]
+        print(f"Received response from {provider_type} ({actual_model}) in {elapsed:.1f} seconds")
 
-        # Try to parse JSON
+        # Try to parse JSON as-is first
         try:
             response_data = json.loads(response_text)
 
@@ -557,11 +501,138 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
             return corrected_lines, rejections, missing_lines, corrections_applied
 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error: {e}")
-            logger.error(f"=== FULL RESPONSE THAT FAILED TO PARSE ===")
+            logger.error(f"Initial JSON parsing failed: {e}")
+            logger.error(f"Response length: {len(response_text)} characters")
+            logger.error(f"=== FULL RAW RESPONSE FROM {provider_type.upper()} ===")
             logger.error(response_text)
             logger.error("=" * 50)
-            logger.error(f"Response length: {len(response_text)} characters")
+
+            # Save raw response to debug file
+            try:
+                import os
+                debug_file = os.path.join(os.getcwd(), "llm_response_debug.txt")
+                with open(debug_file, "w", encoding="utf-8") as f:
+                    f.write(f"Provider: {provider_type}\n")
+                    f.write(f"Model: {model}\n")
+                    f.write(f"Response length: {len(response_text)} characters\n")
+                    f.write(f"Initial parse error: {e}\n")
+                    f.write("=" * 50 + "\n")
+                    f.write(response_text)
+                    f.write("\n" + "=" * 50 + "\n")
+                logger.error(f"Saved raw response to {debug_file}")
+            except Exception as save_err:
+                logger.error(f"Failed to save debug file: {save_err}")
+
+            logger.error(f"Attempting cleanup and retry...")
+
+            # Step 1: Try removing markdown blocks
+            cleaned = response_text
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json")[1].split("```")[0]
+                logger.error(f"Extracted from ```json block")
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```")[1].split("```")[0]
+                logger.error(f"Extracted from ``` block")
+
+            # Step 2: Try to extract just the JSON object
+            cleaned = cleaned.strip()
+            start_idx = cleaned.find('{')
+            if start_idx != -1:
+                brace_count = 0
+                end_idx = start_idx
+                for i, char in enumerate(cleaned[start_idx:], start_idx):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i
+                            break
+                cleaned = cleaned[start_idx:end_idx+1]
+                logger.error(f"Extracted JSON object from position {start_idx} to {end_idx}")
+
+            # Try parsing cleaned version
+            if cleaned != response_text:
+                logger.error(f"=== CLEANED JSON ===")
+                logger.error(cleaned)
+                logger.error("=" * 50)
+                try:
+                    response_data = json.loads(cleaned)
+                    logger.error(f"✓ Successfully parsed after cleanup!")
+
+                    # Process and return
+                    if isinstance(response_data, list):
+                        corrections = response_data
+                        missing_lines = []
+                    else:
+                        corrections = response_data.get('corrections', [])
+                        missing_lines = response_data.get('missing_lines', [])
+
+                    corrected_lines = transcribed_lines.copy()
+                    corrections_applied = 0
+                    rejections = []
+
+                    for correction in corrections:
+                        line_num = correction.get('line_num', 0)
+                        old_text = correction.get('old_text', '')
+                        new_text = correction.get('new_text', '')
+                        line_idx = line_num - 1
+                        if 0 <= line_idx < len(corrected_lines):
+                            original_line = corrected_lines[line_idx]
+                            original_text = original_line.get('text', '')
+                            if old_text == original_text:
+                                if new_text and new_text != original_text:
+                                    corrected_lines[line_idx]['text'] = new_text
+                                    corrections_applied += 1
+
+                    return corrected_lines, rejections, missing_lines, corrections_applied
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Cleaned JSON also failed: {e2}")
+
+            # Step 3: Try fixing unquoted property names
+            import re
+            fixed_json = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', cleaned)
+
+            if fixed_json != cleaned:
+                logger.error(f"Applied property name quote fixes")
+                logger.error(f"=== FIXED JSON ===")
+                logger.error(fixed_json)
+                logger.error("=" * 50)
+
+                try:
+                    response_data = json.loads(fixed_json)
+                    logger.error(f"✓ Successfully parsed after fixing property names!")
+
+                    if isinstance(response_data, list):
+                        corrections = response_data
+                        missing_lines = []
+                    else:
+                        corrections = response_data.get('corrections', [])
+                        missing_lines = response_data.get('missing_lines', [])
+
+                    corrected_lines = transcribed_lines.copy()
+                    corrections_applied = 0
+                    rejections = []
+
+                    for correction in corrections:
+                        line_num = correction.get('line_num', 0)
+                        old_text = correction.get('old_text', '')
+                        new_text = correction.get('new_text', '')
+                        line_idx = line_num - 1
+                        if 0 <= line_idx < len(corrected_lines):
+                            original_line = corrected_lines[line_idx]
+                            original_text = original_line.get('text', '')
+                            if old_text == original_text:
+                                if new_text and new_text != original_text:
+                                    corrected_lines[line_idx]['text'] = new_text
+                                    corrections_applied += 1
+
+                    return corrected_lines, rejections, missing_lines, corrections_applied
+                except json.JSONDecodeError as e3:
+                    logger.error(f"✗ Fixed JSON also failed to parse: {e3}")
+
+            # All attempts failed
+            logger.error(f"=== ALL PARSING ATTEMPTS FAILED ===")
             logger.error(f"First 100 chars: {response_text[:100]}")
             logger.error(f"Last 100 chars: {response_text[-100:]}")
             return None, [], [], 0
@@ -825,12 +896,10 @@ def fix_lyrics_direct(
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(f"=== LYRICS FIXING ATTEMPT {attempt}/{max_retries} FOR: {song_name} ===")
-                emit_progress("correcting", 40 + (attempt * 15), f"Correction attempt {attempt}/{max_retries}...")
+                emit_progress("correcting", 40 + (attempt * 15), f"Lyric correction attempt {attempt}/{max_retries}...")
 
-                if llm_provider == 'lmstudio' and len(transcribed_lines) > 10:
-                    result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8, song_data=song_data, kai_file_path=kai_file)
-                else:
-                    result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data, kai_file_path=kai_file)
+                # Process all lines at once (chunking disabled - most local models now have large context windows)
+                result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data, kai_file_path=kai_file)
 
                 if result and len(result) == 4 and result[0] is not None:
                     logger.info(f"✓ Lyrics fixing succeeded on attempt {attempt}")
@@ -851,14 +920,23 @@ def fix_lyrics_direct(
 
         # Check if all attempts failed
         if not result or len(result) != 4 or result[0] is None:
+            # Build descriptive LLM name for error message
+            # Use actual model returned by provider if available
+            actual_model = llm_config.get('_actual_model_used', llm_model)
+            llm_display_name = llm_provider or "unknown"
+            if actual_model:
+                llm_display_name = f"{llm_provider}:{actual_model}"
+            elif llm_provider == "lmstudio":
+                llm_display_name = "local"
+
             with open("errored_songs.txt", "a", encoding="utf-8") as f:
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"[{timestamp}] FINAL FAILURE: {song_name}\n")
-                f.write(f"Error: All {max_retries} attempts failed - LLM returned empty/invalid results\n")
+                f.write(f"Error: All {max_retries} attempts failed - LLM({llm_display_name}) returned empty/invalid results\n")
                 f.write("-" * 50 + "\n")
 
-            error_msg = f"All {max_retries} attempts failed - LLM returned empty/invalid results"
+            error_msg = f"All {max_retries} attempts failed - LLM({llm_display_name}) returned empty/invalid results"
             logger.error(f"✗ {error_msg}")
             emit_progress("error", 0, error_msg)
             return {

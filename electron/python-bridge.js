@@ -15,6 +15,7 @@ const __dirname = dirname(__filename);
 export class PythonBridge {
   constructor() {
     this.pythonPath = this._getPythonPath();
+    this.activeProcesses = new Set();
   }
 
   /**
@@ -55,6 +56,22 @@ export class PythonBridge {
    */
   async processAudio(options, progressCallback) {
     return new Promise((resolve, reject) => {
+      // Build args JSON to pass safely
+      const argsJson = JSON.stringify({
+        inputFile: options.inputFile,
+        outputFile: options.outputFile || null,
+        whisperModel: options.whisperModel || 'small',
+        language: options.language || 'en',
+        fourStems: options.fourStems || false,
+        features: options.features || null,
+        referenceLyrics: options.referenceLyrics || null,
+        llmEnabled: options.llm?.enabled || false,
+        llmProvider: options.llm?.provider || null,
+        llmModel: options.llm?.model || null,
+        llmApiKey: options.llm?.apiKey || null,
+        llmBaseUrl: options.llm?.baseUrl || null
+      });
+
       const args = [
         '-c',
         `
@@ -67,32 +84,48 @@ from kai_pack.api import KaiAPI
 def progress_callback(stage, percent, message):
     print(f"PROGRESS:{json.dumps({'stage': stage, 'percent': percent, 'message': message})}", flush=True)
 
+# Parse arguments from command line
+args = json.loads(sys.argv[1])
+
 api = KaiAPI(progress_callback=progress_callback)
 result = api.process_audio(
-    input_file='${options.inputFile.replace(/\\/g, '\\\\')}',
-    output_file=${options.outputFile ? `'${options.outputFile.replace(/\\/g, '\\\\')}'` : 'None'},
-    whisper_model='${options.whisperModel || 'small'}',
-    language='${options.language || 'en'}',
-    four_stems=${options.fourStems ? 'True' : 'False'},
-    features=${options.features ? `['${options.features.join("', '")}']` : 'None'},
-    llm_enabled=${options.llm?.enabled ? 'True' : 'False'},
-    llm_provider=${options.llm?.provider ? `'${options.llm.provider}'` : 'None'},
-    llm_model=${options.llm?.model ? `'${options.llm.model}'` : 'None'},
-    llm_api_key=${options.llm?.apiKey ? `'${options.llm.apiKey.replace(/'/g, "\\'")}'` : 'None'},
-    llm_base_url=${options.llm?.baseUrl ? `'${options.llm.baseUrl}'` : 'None'}
+    input_file=args['inputFile'],
+    output_file=args['outputFile'],
+    whisper_model=args['whisperModel'],
+    language=args['language'],
+    four_stems=args['fourStems'],
+    features=args['features'],
+    reference_lyrics=args['referenceLyrics'],
+    llm_enabled=args['llmEnabled'],
+    llm_provider=args['llmProvider'],
+    llm_model=args['llmModel'],
+    llm_api_key=args['llmApiKey'],
+    llm_base_url=args['llmBaseUrl']
 )
 
 print(f"RESULT:{json.dumps(result)}", flush=True)
-`
+`,
+        argsJson
       ];
 
       const python = spawn(this.pythonPath, args, {
         cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: '1',  // Disable Python output buffering
+          FORCE_COLOR: '1'  // May help tqdm output
+        }
       });
+
+      // Track active process
+      this.activeProcesses.add(python);
 
       let outputBuffer = '';
       let errorBuffer = '';
+      let lastDemucsPercent = 0;
+      let stemCounter = 0;
+      const totalStems = 4; // Demucs always separates 4 stems internally
 
       python.stdout.on('data', (data) => {
         const text = data.toString();
@@ -125,13 +158,12 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
         const text = data.toString();
         errorBuffer += text;
 
-        // Parse tqdm progress bars (format: "drums: 45%|████▌     | 45/100")
-        // Extract both stem name and percentage
-        const tqdmMatch = text.match(/(vocals|drums|bass|other):\s*(\d+)%/i);
-        if (tqdmMatch && progressCallback) {
-          const stemName = tqdmMatch[1].charAt(0).toUpperCase() + tqdmMatch[1].slice(1);
-          const percent = parseInt(tqdmMatch[2]);
-          // Emit as sub-progress for current step
+        // Parse tqdm progress bars (Demucs)
+        // Format 1: Per-stem progress like "vocals: 45%|████▌     | 45/100"
+        const stemMatch = text.match(/(vocals|drums|bass|other):\s*(\d+)%/i);
+        if (stemMatch && progressCallback) {
+          const stemName = stemMatch[1].charAt(0).toUpperCase() + stemMatch[1].slice(1);
+          const percent = parseInt(stemMatch[2]);
           progressCallback({
             stage: 'demucs',
             percent: percent,
@@ -139,9 +171,37 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
             subProgress: percent / 100
           });
         }
+
+        // Format 2: Overall Demucs progress like "  59%|██████|  93.6/157.95 [00:17<00:11, 5.66s/s]"
+        const overallMatch = text.match(/^\s*(\d+)%\|[█▏▎▍▌▋▊▉ ]+\|\s*[\d.]+\/[\d.]+/);
+        if (overallMatch && progressCallback) {
+          const percent = parseInt(overallMatch[1]);
+
+          // Detect if progress reset (new stem started) - need significant drop
+          if (percent < lastDemucsPercent - 20 && lastDemucsPercent > 20) {
+            stemCounter++;
+          }
+          lastDemucsPercent = percent;
+
+          // Cap stem counter to not exceed total
+          const currentStem = Math.min(stemCounter + 1, totalStems);
+
+          // If we're seeing multiple passes, show stem counter
+          const message = stemCounter > 0 && stemCounter < totalStems
+            ? `Separating stems (${currentStem} of ${totalStems})...`
+            : `Separating stems...`;
+
+          progressCallback({
+            stage: 'demucs',
+            percent: percent,
+            message: message,
+            subProgress: percent / 100
+          });
+        }
       });
 
       python.on('close', (code) => {
+        this.activeProcesses.delete(python);
         if (code !== 0) {
           reject({
             success: false,
@@ -153,6 +213,7 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
       });
 
       python.on('error', (error) => {
+        this.activeProcesses.delete(python);
         reject({
           success: false,
           error: `Failed to spawn Python: ${error.message}`,
@@ -182,7 +243,8 @@ from kai_pack.metadata import MetadataExtractor
 
 try:
     extractor = MetadataExtractor()
-    metadata = extractor.extract_metadata(Path('${filePath.replace(/\\/g, '\\\\')}'))
+    file_path = sys.argv[1]
+    metadata = extractor.extract_metadata(Path(file_path))
     song_meta = metadata.get('song', {})
     result = {
         'success': True,
@@ -194,7 +256,8 @@ try:
 except Exception as e:
     result = {'success': False, 'error': str(e), 'title': None, 'artist': None}
     print(json.dumps(result))
-`
+`,
+        filePath
       ];
 
       const python = spawn(this.pythonPath, args, {
@@ -203,16 +266,30 @@ except Exception as e:
       });
 
       let output = '';
+      let errorOutput = '';
 
       python.stdout.on('data', (data) => {
         output += data.toString();
       });
 
+      python.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
       python.on('close', (code) => {
+        if (errorOutput) {
+          console.error('Metadata read stderr:', errorOutput);
+        }
+
         if (code === 0 && output.trim()) {
           try {
-            resolve(JSON.parse(output.trim()));
+            const result = JSON.parse(output.trim());
+            if (!result.success) {
+              console.error('Metadata extraction failed:', result.error);
+            }
+            resolve(result);
           } catch (e) {
+            console.error('Failed to parse metadata output:', output);
             resolve({
               success: false,
               error: 'Failed to parse response',
@@ -221,6 +298,7 @@ except Exception as e:
             });
           }
         } else {
+          console.error(`Metadata read failed: code=${code}, output="${output}"`);
           resolve({
             success: false,
             error: 'Failed to read metadata',
@@ -230,7 +308,8 @@ except Exception as e:
         }
       });
 
-      python.on('error', () => {
+      python.on('error', (error) => {
+        console.error('Python spawn error:', error);
         resolve({
           success: false,
           error: 'Python not found',
@@ -250,6 +329,8 @@ except Exception as e:
    */
   async fetchLyrics(title, artist) {
     return new Promise((resolve) => {
+      const argsJson = JSON.stringify({ title, artist });
+
       const args = [
         '-c',
         `
@@ -260,7 +341,8 @@ sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
 from utils.lyrics_utils import fetch_lyrics_from_lrclib
 
 try:
-    lyrics = fetch_lyrics_from_lrclib('${title.replace(/'/g, "\\'")}', '${artist.replace(/'/g, "\\'")}')
+    args = json.loads(sys.argv[1])
+    lyrics = fetch_lyrics_from_lrclib(args['title'], args['artist'])
     if lyrics:
         result = {'success': True, 'lyrics': lyrics}
     else:
@@ -269,7 +351,8 @@ try:
 except Exception as e:
     result = {'success': False, 'error': str(e)}
     print(json.dumps(result))
-`
+`,
+        argsJson
       ];
 
       const python = spawn(this.pythonPath, args, {
@@ -388,6 +471,21 @@ print(json.dumps(result))
         });
       });
     });
+  }
+
+  /**
+   * Kill all active Python processes
+   * Call this when the app is quitting
+   */
+  cleanup() {
+    for (const process of this.activeProcesses) {
+      try {
+        process.kill('SIGKILL');
+      } catch (e) {
+        console.error('Failed to kill Python process:', e);
+      }
+    }
+    this.activeProcesses.clear();
   }
 }
 

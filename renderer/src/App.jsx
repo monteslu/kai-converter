@@ -103,7 +103,18 @@ export default function App() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-auto">
-        {ActiveComponent && <ActiveComponent />}
+        {tabs.map((tab) => {
+          const Component = tab.component;
+          return (
+            <div
+              key={tab.id}
+              style={{ display: currentTab === tab.id ? 'block' : 'none' }}
+              className="h-full"
+            >
+              <Component />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

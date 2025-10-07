@@ -35,6 +35,7 @@ class KaiProcessor:
         whisper_model: str = "base",
         language: str = "en",
         lyrics_url: Optional[str] = None,
+        reference_lyrics: Optional[str] = None,
         use_crepe_filter: bool = False,
         silence_threshold: int = -20,
         vocal_pitch_type: str = "midi_cents",
@@ -46,6 +47,7 @@ class KaiProcessor:
         self.verbose = verbose
         self.language = language
         self.lyrics_url = lyrics_url
+        self.reference_lyrics = reference_lyrics
         self.progress_callback = progress_callback
 
         # Initialize components
@@ -261,9 +263,12 @@ class KaiProcessor:
                 title = metadata['song'].get('title', '')
                 artist = metadata['song'].get('artist', '')
 
-                # Emit LRCLIB lookup progress
-                self._emit_progress(4, 9, f"Looking up lyrics for '{title}' on LRCLIB...", 0.1)
-                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url)
+                # Emit LRCLIB lookup progress (only if we need to fetch)
+                if not self.reference_lyrics:
+                    self._emit_progress(4, 9, f"Looking up lyrics for '{title}' on LRCLIB...", 0.1)
+                else:
+                    self._emit_progress(4, 9, f"Using pre-fetched lyrics for Whisper context...", 0.1)
+                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url, self.reference_lyrics)
 
                 # Report LRCLIB lookup result
                 if lyrics_temp_file:

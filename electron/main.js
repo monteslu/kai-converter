@@ -58,6 +58,10 @@ async function createWindow() {
 
 // App lifecycle
 app.whenReady().then(() => {
+  // Load and apply saved theme before creating window
+  const savedTheme = store.get('theme', 'system');
+  nativeTheme.themeSource = savedTheme;
+
   createWindow();
 
   // macOS: Re-create window when dock icon is clicked
@@ -73,16 +77,24 @@ app.on('window-all-closed', () => {
   app.quit(); // Always quit - don't run in background
 });
 
+// Clean up Python processes when quitting
+app.on('before-quit', () => {
+  pythonBridge.cleanup();
+});
+
 // IPC Handlers
 
 // Theme management
 ipcMain.handle('get-theme', () => {
-  return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
+  // Return the saved theme preference (not the computed dark/light state)
+  return store.get('theme', 'system');
 });
 
 ipcMain.handle('set-theme', (event, theme) => {
   // theme: 'light', 'dark', or 'system'
   nativeTheme.themeSource = theme;
+  // Persist theme preference to store
+  store.set('theme', theme);
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 });
 
