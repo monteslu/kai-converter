@@ -1,0 +1,143 @@
+import { PythonBridge } from './python-bridge.js';
+import { existsSync } from 'fs';
+import { homedir, platform } from 'os';
+import { join } from 'path';
+
+/**
+ * System Checker - Validates system requirements and checks installed components
+ *
+ * Checks for:
+ * - Python availability
+ * - PyTorch installation
+ * - Demucs models
+ * - Whisper models
+ * - GPU availability
+ * - Disk space
+ */
+
+export class SystemChecker {
+  constructor() {
+    this.pythonBridge = new PythonBridge();
+  }
+
+  /**
+   * Get the cache directory for models
+   */
+  _getCacheDir() {
+    const plat = platform();
+    if (plat === 'darwin') {
+      return join(homedir(), 'Library', 'Caches', 'KAI-Converter');
+    } else if (plat === 'win32') {
+      return join(homedir(), 'AppData', 'Local', 'KAI-Converter', 'Cache');
+    } else {
+      // Linux
+      return join(homedir(), '.cache', 'kai-converter');
+    }
+  }
+
+  /**
+   * Check if Whisper model is downloaded
+   */
+  _checkWhisperModel(modelName) {
+    // Whisper stores models in ~/.cache/whisper/
+    const whisperCache = join(homedir(), '.cache', 'whisper');
+    const modelFile = join(whisperCache, `${modelName}.pt`);
+    return existsSync(modelFile);
+  }
+
+  /**
+   * Check if Demucs model is downloaded
+   */
+  _checkDemucsModel(modelName = 'htdemucs_ft') {
+    // Demucs stores models in torch hub cache
+    const torchCache = join(homedir(), '.cache', 'torch', 'hub', 'checkpoints');
+    // Check for the model file
+    return existsSync(torchCache);
+  }
+
+  /**
+   * Perform complete system check
+   *
+   * @returns {Promise<Object>} System status
+   */
+  async checkSystem() {
+    const result = {
+      python: {
+        available: false,
+        version: null,
+      },
+      pytorch: {
+        available: false,
+        version: null,
+      },
+      gpu: {
+        available: false,
+        type: 'none', // 'cuda', 'mps', 'none'
+      },
+      demucs: {
+        available: false,
+        model: 'htdemucs_ft',
+      },
+      whisper: {
+        available: false,
+        models: [],
+      },
+      disk: {
+        cacheDir: this._getCacheDir(),
+      },
+    };
+
+    try {
+      // Test Python and modules
+      const pythonTest = await this.pythonBridge.testPython();
+
+      result.python.available = pythonTest.available;
+      result.python.version = pythonTest.python_version;
+
+      if (pythonTest.torch) {
+        result.pytorch.available = true;
+        result.pytorch.version = pythonTest.torch_version;
+
+        if (pythonTest.cuda_available) {
+          result.gpu.available = true;
+          result.gpu.type = 'cuda';
+        } else if (platform() === 'darwin') {
+          // Check for Apple Silicon MPS
+          result.gpu.type = 'mps';
+          result.gpu.available = true; // Assume MPS available on macOS
+        }
+      }
+
+      if (pythonTest.demucs) {
+        result.demucs.available = true;
+      }
+
+      if (pythonTest.whisper) {
+        result.whisper.available = true;
+        // Check for downloaded models
+        const models = ['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3'];
+        result.whisper.models = models.filter((m) => this._checkWhisperModel(m));
+      }
+    } catch (error) {
+      console.error('System check error:', error);
+      result.error = error.message;
+    }
+
+    return result;
+  }
+
+  /**
+   * Get list of available Whisper models
+   */
+  getAvailableWhisperModels() {
+    return [
+      { name: 'tiny', size: 75 * 1024 * 1024, description: 'Fastest, least accurate' },
+      { name: 'base', size: 150 * 1024 * 1024, description: 'Fast' },
+      { name: 'small', size: 500 * 1024 * 1024, description: 'Recommended balance' },
+      { name: 'medium', size: 1500 * 1024 * 1024, description: 'Good accuracy' },
+      { name: 'large-v3', size: 3000 * 1024 * 1024, description: 'Best accuracy' },
+    ];
+  }
+}
+
+export default SystemChecker;

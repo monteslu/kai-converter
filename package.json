@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:electron": "wait-on http://localhost:5173 && electron .",
+    "dev:electron": "wait-on http://localhost:5174 && electron . --no-sandbox",
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:electron\"",
     "build": "vite build",
     "build:python": "node scripts/build-python.js",

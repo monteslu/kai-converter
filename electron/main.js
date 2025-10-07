@@ -1,9 +1,15 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { PythonBridge } from './python-bridge.js';
+import { SystemChecker } from './system-checker.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Initialize bridges
+const pythonBridge = new PythonBridge();
+const systemChecker = new SystemChecker();
 
 const isDev = !app.isPackaged;
 
@@ -24,7 +30,7 @@ async function createWindow() {
 
   // Load the app
   if (isDev) {
-    await mainWindow.loadURL('http://localhost:5173');
+    await mainWindow.loadURL('http://localhost:5174');
     mainWindow.webContents.openDevTools();
   } else {
     await mainWindow.loadFile(join(__dirname, '..', 'renderer', 'dist', 'index.html'));
@@ -81,31 +87,50 @@ nativeTheme.on('updated', () => {
   }
 });
 
-// Placeholder IPC handlers (will be implemented in Phase 3)
+// System check
 ipcMain.handle('check-system', async () => {
-  // TODO: Implement system checker
-  return {
-    python: { available: false },
-    pytorch: { available: false },
-    demucs: { available: false },
-    whisper: { available: false },
-    gpu: { available: false, type: 'none' },
-  };
+  try {
+    const result = await systemChecker.checkSystem();
+    return result;
+  } catch (error) {
+    console.error('System check error:', error);
+    return {
+      error: error.message,
+      python: { available: false },
+      pytorch: { available: false },
+      demucs: { available: false },
+      whisper: { available: false },
+      gpu: { available: false, type: 'none' },
+    };
+  }
 });
 
+// Audio processing
 ipcMain.handle('process-audio', async (event, options) => {
-  // TODO: Implement Python bridge
-  return {
-    success: false,
-    error: 'Not implemented yet',
-  };
+  try {
+    const result = await pythonBridge.processAudio(options, (progress) => {
+      // Send progress to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('processing-progress', progress);
+      }
+    });
+    return result;
+  } catch (error) {
+    console.error('Processing error:', error);
+    return {
+      success: false,
+      error: error.error || error.message,
+      error_type: error.error_type || 'UnknownError',
+    };
+  }
 });
 
+// Download component (placeholder for now - will be fully implemented with download manager)
 ipcMain.handle('download-component', async (event, component) => {
-  // TODO: Implement download manager
+  // TODO: Implement download manager in next task
   return {
     success: false,
-    error: 'Not implemented yet',
+    error: 'Download manager not implemented yet',
   };
 });
 
