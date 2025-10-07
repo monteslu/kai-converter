@@ -36,6 +36,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectAudioFile: () => ipcRenderer.invoke('select-audio-file'),
   selectOutputFolder: () => ipcRenderer.invoke('select-output-folder'),
 
+  // Audio metadata
+  readAudioMetadata: (filePath) => ipcRenderer.invoke('read-audio-metadata', filePath),
+
+  // Lyrics
+  fetchLyrics: (title, artist) => ipcRenderer.invoke('fetch-lyrics', title, artist),
+
   // Settings
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
   loadSettings: () => ipcRenderer.invoke('load-settings'),

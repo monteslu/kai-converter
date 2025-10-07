@@ -148,6 +148,75 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
   }
 
   /**
+   * Fetch lyrics from LRCLIB
+   *
+   * @param {string} title - Song title
+   * @param {string} artist - Artist name
+   * @returns {Promise<Object>} Lyrics result
+   */
+  async fetchLyrics(title, artist) {
+    return new Promise((resolve) => {
+      const args = [
+        '-c',
+        `
+import sys
+import json
+sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
+
+from utils.lyrics_utils import fetch_lyrics_from_lrclib
+
+try:
+    lyrics = fetch_lyrics_from_lrclib('${title.replace(/'/g, "\\'")}', '${artist.replace(/'/g, "\\'")}')
+    if lyrics:
+        result = {'success': True, 'lyrics': lyrics}
+    else:
+        result = {'success': False, 'error': 'No lyrics found'}
+    print(json.dumps(result))
+except Exception as e:
+    result = {'success': False, 'error': str(e)}
+    print(json.dumps(result))
+`
+      ];
+
+      const python = spawn(this.pythonPath, args, {
+        cwd: join(__dirname, '..'),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let output = '';
+
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      python.on('close', (code) => {
+        if (code === 0 && output.trim()) {
+          try {
+            resolve(JSON.parse(output.trim()));
+          } catch (e) {
+            resolve({
+              success: false,
+              error: 'Failed to parse response',
+            });
+          }
+        } else {
+          resolve({
+            success: false,
+            error: 'Failed to fetch lyrics',
+          });
+        }
+      });
+
+      python.on('error', () => {
+        resolve({
+          success: false,
+          error: 'Python not found',
+        });
+      });
+    });
+  }
+
+  /**
    * Test if Python and required modules are available
    *
    * @returns {Promise<Object>} Test results

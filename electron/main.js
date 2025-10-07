@@ -212,6 +212,36 @@ ipcMain.handle('select-output-folder', async () => {
   return result.filePaths[0] || null;
 });
 
+// Read audio metadata
+ipcMain.handle('read-audio-metadata', async (event, filePath) => {
+  try {
+    const metadata = await pythonBridge.readAudioMetadata(filePath);
+    return metadata;
+  } catch (error) {
+    console.error('Metadata read error:', error);
+    return {
+      success: false,
+      error: error.message,
+      title: null,
+      artist: null,
+    };
+  }
+});
+
+// Fetch lyrics from LRCLIB
+ipcMain.handle('fetch-lyrics', async (event, title, artist) => {
+  try {
+    const result = await pythonBridge.fetchLyrics(title, artist);
+    return result;
+  } catch (error) {
+    console.error('Lyrics fetch error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
 // Settings
 ipcMain.handle('save-settings', async (event, settings) => {
   try {

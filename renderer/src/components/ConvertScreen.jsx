@@ -11,6 +11,8 @@ export default function ConvertScreen() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [lyricsStatus, setLyricsStatus] = useState(null); // 'loading', 'found', 'not-found'
+  const [referenceLyrics, setReferenceLyrics] = useState(null);
   const fileInputRef = useRef(null);
 
   // Load settings on mount
@@ -39,16 +41,44 @@ export default function ConvertScreen() {
       if (window.electronAPI) {
         const filePath = await window.electronAPI.selectAudioFile();
         if (filePath) {
-          setInputFile(filePath);
-          setResult(null);
-          setError(null);
-          // Auto-generate output file path
-          const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
-          setOutputFile(kaiPath);
+          await processFileSelection(filePath);
         }
       }
     } catch (error) {
       console.error('File selection error:', error);
+    }
+  }
+
+  // Process file selection - read metadata and fetch lyrics
+  async function processFileSelection(filePath) {
+    setInputFile(filePath);
+    setResult(null);
+    setError(null);
+    setLyricsStatus(null);
+    setReferenceLyrics(null);
+
+    // Auto-generate output file path
+    const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
+    setOutputFile(kaiPath);
+
+    // Read metadata
+    const metadata = await window.electronAPI.readAudioMetadata(filePath);
+    const title = metadata.title;
+    const artist = metadata.artist;
+
+    // Fetch lyrics if we have title and artist
+    if (title && artist) {
+      setLyricsStatus('loading');
+      const lyricsResult = await window.electronAPI.fetchLyrics(title, artist);
+
+      if (lyricsResult.success) {
+        setLyricsStatus('found');
+        setReferenceLyrics(lyricsResult.lyrics);
+      } else {
+        setLyricsStatus('not-found');
+      }
+    } else {
+      setLyricsStatus('no-metadata');
     }
   }
 
@@ -79,7 +109,7 @@ export default function ConvertScreen() {
     setIsDragging(false);
   }
 
-  function handleDrop(e) {
+  async function handleDrop(e) {
     e.preventDefault();
     setIsDragging(false);
 
@@ -89,11 +119,7 @@ export default function ConvertScreen() {
       // In Electron, we get the file path from the File object
       const filePath = file.path;
       if (filePath) {
-        setInputFile(filePath);
-        setResult(null);
-        setError(null);
-        const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
-        setOutputFile(kaiPath);
+        await processFileSelection(filePath);
       }
     }
   }
@@ -214,6 +240,32 @@ export default function ConvertScreen() {
           className="hidden"
         />
       </div>
+
+      {/* Lyrics Status */}
+      {inputFile && lyricsStatus && (
+        <div className="card p-4 mb-6">
+          {lyricsStatus === 'loading' && (
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              🔍 Looking up reference lyrics on LRCLIB...
+            </p>
+          )}
+          {lyricsStatus === 'found' && (
+            <p className="text-sm text-green-600 dark:text-green-400">
+              ✓ Found reference lyrics - will improve transcription accuracy
+            </p>
+          )}
+          {lyricsStatus === 'not-found' && (
+            <p className="text-sm text-yellow-600 dark:text-yellow-400">
+              ⚠ No reference lyrics found - transcription will proceed without hints
+            </p>
+          )}
+          {lyricsStatus === 'no-metadata' && (
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              ℹ Missing title/artist metadata - cannot look up reference lyrics
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Output Path */}
       {inputFile && (
