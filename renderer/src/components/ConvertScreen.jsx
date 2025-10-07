@@ -13,6 +13,8 @@ export default function ConvertScreen() {
   const [isDragging, setIsDragging] = useState(false);
   const [lyricsStatus, setLyricsStatus] = useState(null); // 'loading', 'found', 'not-found'
   const [referenceLyrics, setReferenceLyrics] = useState(null);
+  const [manualLyrics, setManualLyrics] = useState('');
+  const [showLyricsInput, setShowLyricsInput] = useState(false);
   const fileInputRef = useRef(null);
 
   // Load settings on mount
@@ -56,6 +58,8 @@ export default function ConvertScreen() {
     setError(null);
     setLyricsStatus(null);
     setReferenceLyrics(null);
+    setManualLyrics('');
+    setShowLyricsInput(false);
 
     // Auto-generate output file path
     const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
@@ -255,9 +259,58 @@ export default function ConvertScreen() {
             </p>
           )}
           {lyricsStatus === 'not-found' && (
-            <p className="text-sm text-yellow-600 dark:text-yellow-400">
-              ⚠ No reference lyrics found - transcription will proceed without hints
-            </p>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm text-yellow-600 dark:text-yellow-400">
+                  ⚠ No reference lyrics found on LRCLIB
+                </p>
+                {!showLyricsInput && (
+                  <button
+                    onClick={() => setShowLyricsInput(true)}
+                    className="text-sm px-3 py-1 text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Paste lyrics manually
+                  </button>
+                )}
+              </div>
+              {showLyricsInput && (
+                <div className="mt-3">
+                  <label className="block text-sm font-medium mb-2">
+                    Paste lyrics to improve transcription accuracy (optional):
+                  </label>
+                  <textarea
+                    className="input w-full h-32 font-mono text-sm"
+                    placeholder="Paste plain text lyrics here...&#10;&#10;Example:&#10;Hello darkness my old friend&#10;I've come to talk with you again..."
+                    value={manualLyrics}
+                    onChange={(e) => {
+                      setManualLyrics(e.target.value);
+                      if (e.target.value.trim()) {
+                        setReferenceLyrics(e.target.value);
+                      } else {
+                        setReferenceLyrics(null);
+                      }
+                    }}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => {
+                        setManualLyrics('');
+                        setReferenceLyrics(null);
+                        setShowLyricsInput(false);
+                      }}
+                      className="text-sm px-3 py-1 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+                    >
+                      Clear
+                    </button>
+                    {manualLyrics.trim() && (
+                      <p className="text-sm text-green-600 dark:text-green-400 self-center">
+                        ✓ Lyrics added - will improve accuracy
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
           {lyricsStatus === 'no-metadata' && (
             <p className="text-sm text-gray-600 dark:text-gray-400">
