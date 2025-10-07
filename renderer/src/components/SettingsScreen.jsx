@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 export default function SettingsScreen() {
   const [openSection, setOpenSection] = useState('models');
-  const [whisperModel, setWhisperModel] = useState('small');
+  const [whisperModel, setWhisperModel] = useState('large-v3-turbo');
   const [language, setLanguage] = useState('auto');
   const [stems, setStems] = useState(2);
   const [gpu, setGpu] = useState('auto');
@@ -21,7 +21,7 @@ export default function SettingsScreen() {
     try {
       if (window.electronAPI) {
         const settings = await window.electronAPI.loadSettings();
-        setWhisperModel(settings.whisperModel || 'small');
+        setWhisperModel(settings.whisperModel || 'large-v3-turbo');
         setLanguage(settings.language || 'auto');
         setStems(settings.stems || 2);
         setGpu(settings.gpu || 'auto');
@@ -101,10 +101,10 @@ export default function SettingsScreen() {
               >
                 <option value="tiny">tiny (fastest, least accurate)</option>
                 <option value="base">base</option>
-                <option value="small">small (recommended)</option>
+                <option value="small">small (fast)</option>
                 <option value="medium">medium</option>
                 <option value="large-v3">large-v3 (best quality)</option>
-                <option value="large-v3-turbo">large-v3-turbo (accurate and efficient)</option>
+                <option value="large-v3-turbo">large-v3-turbo (recommended)</option>
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 This model will be used by default for new conversions

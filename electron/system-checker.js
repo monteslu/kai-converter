@@ -133,10 +133,10 @@ export class SystemChecker {
     return [
       { name: 'tiny', size: 75 * 1024 * 1024, description: 'Fastest, least accurate' },
       { name: 'base', size: 150 * 1024 * 1024, description: 'Fast' },
-      { name: 'small', size: 500 * 1024 * 1024, description: 'Recommended balance' },
+      { name: 'small', size: 500 * 1024 * 1024, description: 'Fast' },
       { name: 'medium', size: 1500 * 1024 * 1024, description: 'Good accuracy' },
       { name: 'large-v3', size: 3000 * 1024 * 1024, description: 'Best accuracy' },
-      { name: 'large-v3-turbo', size: 1600 * 1024 * 1024, description: 'Accurate and efficient' },
+      { name: 'large-v3-turbo', size: 1600 * 1024 * 1024, description: 'Recommended' },
     ];
   }
 }

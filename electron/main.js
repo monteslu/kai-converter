@@ -215,7 +215,7 @@ ipcMain.handle('save-settings', async (event, settings) => {
 ipcMain.handle('load-settings', async () => {
   // TODO: Load from config file
   return {
-    whisperModel: 'small',
+    whisperModel: 'large-v3-turbo',
     language: 'auto',
     stems: 2,
     gpu: 'auto',

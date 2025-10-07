@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 export default function ConvertScreen() {
   const [inputFile, setInputFile] = useState(null);
   const [outputFile, setOutputFile] = useState(null);
-  const [whisperModel, setWhisperModel] = useState('small');
+  const [whisperModel, setWhisperModel] = useState('large-v3-turbo');
   const [language, setLanguage] = useState('auto');
   const [fourStems, setFourStems] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,7 +22,7 @@ export default function ConvertScreen() {
     try {
       if (window.electronAPI) {
         const settings = await window.electronAPI.loadSettings();
-        setWhisperModel(settings.whisperModel || 'small');
+        setWhisperModel(settings.whisperModel || 'large-v3-turbo');
         setLanguage(settings.language || 'auto');
         setFourStems(settings.stems === 4);
       }
@@ -233,10 +233,10 @@ export default function ConvertScreen() {
             >
               <option value="tiny">tiny (fastest, least accurate)</option>
               <option value="base">base</option>
-              <option value="small">small (recommended)</option>
+              <option value="small">small (fast)</option>
               <option value="medium">medium</option>
               <option value="large-v3">large-v3 (best quality)</option>
-              <option value="large-v3-turbo">large-v3-turbo (accurate and efficient)</option>
+              <option value="large-v3-turbo">large-v3-turbo (recommended)</option>
             </select>
           </div>
           <div>

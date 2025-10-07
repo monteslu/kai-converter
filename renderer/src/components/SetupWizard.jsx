@@ -4,7 +4,7 @@ export default function SetupWizard({ onComplete }) {
   const [step, setStep] = useState(1);
   const [systemInfo, setSystemInfo] = useState(null);
   const [checking, setChecking] = useState(true);
-  const [selectedWhisperModel, setSelectedWhisperModel] = useState('small');
+  const [selectedWhisperModel, setSelectedWhisperModel] = useState('large-v3-turbo');
   const [selectedPyTorchVariant, setSelectedPyTorchVariant] = useState('cpu');
   const [downloads, setDownloads] = useState([]);
   const [downloadProgress, setDownloadProgress] = useState({});
@@ -22,10 +22,10 @@ export default function SetupWizard({ onComplete }) {
   const whisperModels = [
     { name: 'tiny', size: '75MB', description: 'Fastest, least accurate' },
     { name: 'base', size: '150MB', description: 'Fast' },
-    { name: 'small', size: '500MB', description: '⭐ Recommended balance' },
+    { name: 'small', size: '500MB', description: 'Fast' },
     { name: 'medium', size: '1.5GB', description: 'Good accuracy' },
     { name: 'large-v3', size: '3GB', description: 'Best accuracy' },
-    { name: 'large-v3-turbo', size: '1.6GB', description: '🚀 Accurate and efficient' },
+    { name: 'large-v3-turbo', size: '1.6GB', description: '⭐ Recommended' },
   ];
 
   // Step 1: Check system on mount
