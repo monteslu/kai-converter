@@ -222,7 +222,7 @@ class KaiAPI:
                 logger.info("LLM correction enabled, running fix_lyrics...")
 
                 try:
-                    from ..utils.fix_lyrics import fix_lyrics_direct
+                    from utils.fix_lyrics import fix_lyrics_direct
 
                     # Map GUI provider names to fix_lyrics provider names
                     provider_map = {
