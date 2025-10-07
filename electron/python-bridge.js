@@ -122,8 +122,23 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
       });
 
       python.stderr.on('data', (data) => {
-        errorBuffer += data.toString();
-        console.error('Python stderr:', data.toString());
+        const text = data.toString();
+        errorBuffer += text;
+
+        // Parse tqdm progress bars (format: "vocals: 45%|████▌     | 45/100")
+        // Look for percentage pattern in stderr
+        const percentMatch = text.match(/(\d+)%/);
+        if (percentMatch && progressCallback) {
+          const percent = parseInt(percentMatch[1]);
+          // Emit as sub-progress for current step
+          // Note: This will be picked up by step 3 (Demucs) in the processor
+          progressCallback({
+            stage: 'demucs',
+            percent: percent,
+            message: `Separating stems... ${percent}%`,
+            subProgress: percent / 100
+          });
+        }
       });
 
       python.on('close', (code) => {

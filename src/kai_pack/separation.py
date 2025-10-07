@@ -93,8 +93,7 @@ class StemSeparator:
         audio_tensor = audio_tensor.to(self.device)
         
         # Apply the model
-        # Note: Demucs doesn't provide progress callbacks, so we just disable tqdm output
-        # The UI will show a steady message like "Separating stems on CUDA..."
+        # Enable tqdm progress bars - python-bridge will parse stderr for progress updates
         with torch.no_grad():
             sources = apply_model(
                 self.model,
@@ -103,7 +102,7 @@ class StemSeparator:
                 shifts=1,
                 split=True,
                 overlap=self.overlap,
-                progress=False  # Disable tqdm to avoid stdout clutter
+                progress=True  # Enable tqdm - python-bridge parses stderr for % updates
             )
             
         # Convert back to original sample rate if needed
