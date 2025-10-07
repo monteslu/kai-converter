@@ -228,6 +228,7 @@ class KaiAPI:
                     provider_map = {
                         'claude': 'anthropic',
                         'openai': 'openai',
+                        'gemini': 'gemini',
                         'local': 'lmstudio'
                     }
 

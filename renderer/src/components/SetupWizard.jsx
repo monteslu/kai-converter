@@ -11,11 +11,19 @@ export default function SetupWizard({ onComplete }) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadComplete, setDownloadComplete] = useState(false);
 
+  // LLM settings
+  const [llmEnabled, setLlmEnabled] = useState(true);
+  const [llmProvider, setLlmProvider] = useState('claude');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+
   const steps = [
     { id: 1, title: 'System Check', description: 'Checking requirements...' },
     { id: 2, title: 'Model Selection', description: 'Choose models to download' },
-    { id: 3, title: 'Downloading', description: 'Downloading models...' },
-    { id: 4, title: 'Complete', description: 'Setup complete!' },
+    { id: 3, title: 'LLM Setup', description: 'Configure lyric correction (optional)' },
+    { id: 4, title: 'Downloading', description: 'Downloading models...' },
+    { id: 5, title: 'Complete', description: 'Setup complete!' },
   ];
 
   // Whisper model options
@@ -147,10 +155,10 @@ export default function SetupWizard({ onComplete }) {
     }
   }
 
-  // Auto-advance to step 4 when downloads complete
+  // Auto-advance to step 5 when downloads complete
   useEffect(() => {
-    if (downloadComplete && step === 3) {
-      setTimeout(() => setStep(4), 1000);
+    if (downloadComplete && step === 4) {
+      setTimeout(() => setStep(5), 1000);
     }
   }, [downloadComplete, step]);
 
@@ -161,16 +169,16 @@ export default function SetupWizard({ onComplete }) {
       <div className="card p-8 w-full max-w-2xl">
         <h1 className="text-3xl font-bold mb-2">🎵 KAI Converter Setup</h1>
         <p className="text-gray-600 dark:text-gray-400 mb-8">
-          Step {step}/4: {currentStep.title}
+          Step {step}/5: {currentStep.title}
         </p>
 
         {/* Progress Bar */}
         <div className="mb-8">
-          <div className="flex justify-between mb-2">
+          <div className="flex justify-between mb-2 text-xs">
             {steps.map((s) => (
               <div
                 key={s.id}
-                className={`text-sm ${s.id <= step ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-400'}`}
+                className={`${s.id <= step ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-400'}`}
               >
                 {s.id}. {s.title}
               </div>
@@ -179,7 +187,7 @@ export default function SetupWizard({ onComplete }) {
           <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
             <div
               className="h-2 bg-blue-600 dark:bg-blue-400 rounded-full transition-all"
-              style={{ width: `${(step / 4) * 100}%` }}
+              style={{ width: `${(step / 5) * 100}%` }}
             />
           </div>
         </div>
@@ -322,8 +330,164 @@ export default function SetupWizard({ onComplete }) {
             </div>
           )}
 
-          {/* Step 3: Downloading */}
+          {/* Step 3: LLM Setup */}
           {step === 3 && (
+            <div>
+              <h2 className="text-xl font-semibold mb-4">AI-Powered Lyric Correction (Optional)</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                KAI Converter can use large language models to improve transcription accuracy.
+                This step is optional - you can skip it and configure it later in Settings.
+              </p>
+
+              <div className="space-y-4">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={llmEnabled}
+                    onChange={(e) => setLlmEnabled(e.target.checked)}
+                    className="mr-2"
+                  />
+                  <span className="font-medium">Enable AI lyric correction</span>
+                </label>
+
+                {llmEnabled && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Choose Provider</label>
+                      <div className="space-y-2">
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="llmProvider"
+                            value="claude"
+                            checked={llmProvider === 'claude'}
+                            onChange={(e) => setLlmProvider(e.target.value)}
+                            className="mr-2"
+                          />
+                          <span>Anthropic Claude (recommended)</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="llmProvider"
+                            value="openai"
+                            checked={llmProvider === 'openai'}
+                            onChange={(e) => setLlmProvider(e.target.value)}
+                            className="mr-2"
+                          />
+                          <span>OpenAI (GPT-4o)</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="llmProvider"
+                            value="gemini"
+                            checked={llmProvider === 'gemini'}
+                            onChange={(e) => setLlmProvider(e.target.value)}
+                            className="mr-2"
+                          />
+                          <span>Google Gemini</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="llmProvider"
+                            value="local"
+                            checked={llmProvider === 'local'}
+                            onChange={(e) => setLlmProvider(e.target.value)}
+                            className="mr-2"
+                          />
+                          <span>Local LLM (LM Studio) - No API key needed</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {llmProvider === 'claude' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Claude API Key</label>
+                        <input
+                          type="password"
+                          className="input w-full"
+                          value={claudeApiKey}
+                          onChange={(e) => setClaudeApiKey(e.target.value)}
+                          placeholder="sk-ant-..."
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Get your API key from{' '}
+                          <a
+                            href="https://console.anthropic.com/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            console.anthropic.com
+                          </a>
+                        </p>
+                      </div>
+                    )}
+
+                    {llmProvider === 'openai' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">OpenAI API Key</label>
+                        <input
+                          type="password"
+                          className="input w-full"
+                          value={openaiApiKey}
+                          onChange={(e) => setOpenaiApiKey(e.target.value)}
+                          placeholder="sk-..."
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Get your API key from{' '}
+                          <a
+                            href="https://platform.openai.com/api-keys"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            platform.openai.com
+                          </a>
+                        </p>
+                      </div>
+                    )}
+
+                    {llmProvider === 'gemini' && (
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Gemini API Key</label>
+                        <input
+                          type="password"
+                          className="input w-full"
+                          value={geminiApiKey}
+                          onChange={(e) => setGeminiApiKey(e.target.value)}
+                          placeholder="AIza..."
+                        />
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Get your API key from{' '}
+                          <a
+                            href="https://aistudio.google.com/app/apikey"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline"
+                          >
+                            Google AI Studio
+                          </a>
+                        </p>
+                      </div>
+                    )}
+
+                    {llmProvider === 'local' && (
+                      <div className="text-sm text-gray-600 dark:text-gray-400">
+                        <p>Make sure LM Studio (or compatible server) is running on localhost:1234</p>
+                        <p className="mt-2">You can configure host and port in Settings later.</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: Downloading */}
+          {step === 4 && (
             <div>
               <h2 className="text-xl font-semibold mb-4">
                 {downloadComplete ? 'Downloads Complete!' : 'Downloading Components...'}
@@ -366,8 +530,8 @@ export default function SetupWizard({ onComplete }) {
             </div>
           )}
 
-          {/* Step 4: Complete */}
-          {step === 4 && (
+          {/* Step 5: Complete */}
+          {step === 5 && (
             <div className="text-center">
               <div className="text-6xl mb-4">✓</div>
               <h2 className="text-2xl font-semibold mb-4">Setup Complete!</h2>
@@ -388,7 +552,7 @@ export default function SetupWizard({ onComplete }) {
 
         {/* Buttons */}
         <div className="flex gap-4">
-          {step > 1 && step < 3 && (
+          {step > 1 && step < 4 && (
             <button onClick={() => setStep(step - 1)} className="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
               Back
             </button>
@@ -399,9 +563,31 @@ export default function SetupWizard({ onComplete }) {
             </button>
           )}
           {step === 2 && (
+            <button onClick={() => setStep(3)} className="btn-primary flex-1">
+              Continue
+            </button>
+          )}
+          {step === 3 && (
             <button
-              onClick={() => {
-                setStep(3);
+              onClick={async () => {
+                // Save LLM settings
+                if (window.electronAPI && llmEnabled) {
+                  await window.electronAPI.saveSettings({
+                    llm: {
+                      enabled: llmEnabled,
+                      provider: llmProvider,
+                      claudeApiKey,
+                      claudeModel: 'claude-3-5-sonnet-20241022',
+                      openaiApiKey,
+                      openaiModel: 'gpt-4o',
+                      geminiApiKey,
+                      geminiModel: 'gemini-1.5-flash',
+                      localLlmHost: 'localhost',
+                      localLlmPort: '1234',
+                    },
+                  });
+                }
+                setStep(4);
                 setTimeout(startDownloads, 500);
               }}
               className="btn-primary flex-1"
@@ -409,12 +595,12 @@ export default function SetupWizard({ onComplete }) {
               Start Download
             </button>
           )}
-          {step === 3 && !isDownloading && !downloadComplete && (
+          {step === 4 && !isDownloading && !downloadComplete && (
             <button onClick={startDownloads} className="btn-primary flex-1">
               Retry
             </button>
           )}
-          {step === 4 && (
+          {step === 5 && (
             <button onClick={onComplete} className="btn-primary flex-1">
               Start Using KAI Converter
             </button>

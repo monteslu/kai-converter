@@ -12,12 +12,14 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
 
   // LLM settings
-  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [llmEnabled, setLlmEnabled] = useState(true); // Default: enabled
   const [llmProvider, setLlmProvider] = useState('claude');
   const [claudeApiKey, setClaudeApiKey] = useState('');
   const [claudeModel, setClaudeModel] = useState('claude-3-5-sonnet-20241022');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [openaiModel, setOpenaiModel] = useState('gpt-4o');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiModel, setGeminiModel] = useState('gemini-1.5-flash');
   const [localLlmHost, setLocalLlmHost] = useState('localhost');
   const [localLlmPort, setLocalLlmPort] = useState('1234');
 
@@ -38,12 +40,14 @@ export default function SettingsScreen() {
 
         // Load LLM settings
         if (settings.llm) {
-          setLlmEnabled(settings.llm.enabled || false);
+          setLlmEnabled(settings.llm.enabled !== undefined ? settings.llm.enabled : true);
           setLlmProvider(settings.llm.provider || 'claude');
           setClaudeApiKey(settings.llm.claudeApiKey || '');
           setClaudeModel(settings.llm.claudeModel || 'claude-3-5-sonnet-20241022');
           setOpenaiApiKey(settings.llm.openaiApiKey || '');
           setOpenaiModel(settings.llm.openaiModel || 'gpt-4o');
+          setGeminiApiKey(settings.llm.geminiApiKey || '');
+          setGeminiModel(settings.llm.geminiModel || 'gemini-1.5-flash');
           setLocalLlmHost(settings.llm.localLlmHost || 'localhost');
           setLocalLlmPort(settings.llm.localLlmPort || '1234');
         }
@@ -86,6 +90,8 @@ export default function SettingsScreen() {
             claudeModel,
             openaiApiKey,
             openaiModel,
+            geminiApiKey,
+            geminiModel,
             localLlmHost,
             localLlmPort,
           },
@@ -392,6 +398,7 @@ export default function SettingsScreen() {
                   >
                     <option value="claude">Anthropic Claude</option>
                     <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
                     <option value="local">Local LLM (LM Studio)</option>
                   </select>
                 </div>
@@ -469,6 +476,45 @@ export default function SettingsScreen() {
                         <option value="gpt-4o">GPT-4o (recommended)</option>
                         <option value="gpt-4o-mini">GPT-4o mini (faster, cheaper)</option>
                         <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* Gemini Settings */}
+                {llmProvider === 'gemini' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Gemini API Key</label>
+                      <input
+                        type="password"
+                        className="input w-full"
+                        value={geminiApiKey}
+                        onChange={(e) => setGeminiApiKey(e.target.value)}
+                        placeholder="AIza..."
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Get your API key from{' '}
+                        <a
+                          href="https://aistudio.google.com/app/apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          Google AI Studio
+                        </a>
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Gemini Model</label>
+                      <select
+                        className="input w-full"
+                        value={geminiModel}
+                        onChange={(e) => setGeminiModel(e.target.value)}
+                      >
+                        <option value="gemini-1.5-flash">Gemini 1.5 Flash (recommended, fast)</option>
+                        <option value="gemini-1.5-pro">Gemini 1.5 Pro (best quality)</option>
+                        <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (experimental)</option>
                       </select>
                     </div>
                   </>

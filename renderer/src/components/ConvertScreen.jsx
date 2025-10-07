@@ -126,12 +126,14 @@ export default function ConvertScreen() {
         language: language === 'auto' ? 'en' : language,
         fourStems,
         llm: {
-          enabled: llmSettings.enabled || false,
+          enabled: llmSettings.enabled !== undefined ? llmSettings.enabled : true,
           provider: llmSettings.provider || null,
           model: llmSettings.provider === 'claude' ? llmSettings.claudeModel :
-                 llmSettings.provider === 'openai' ? llmSettings.openaiModel : null,
+                 llmSettings.provider === 'openai' ? llmSettings.openaiModel :
+                 llmSettings.provider === 'gemini' ? llmSettings.geminiModel : null,
           apiKey: llmSettings.provider === 'claude' ? llmSettings.claudeApiKey :
-                  llmSettings.provider === 'openai' ? llmSettings.openaiApiKey : null,
+                  llmSettings.provider === 'openai' ? llmSettings.openaiApiKey :
+                  llmSettings.provider === 'gemini' ? llmSettings.geminiApiKey : null,
           baseUrl: llmSettings.provider === 'local' ?
                    `http://${llmSettings.localLlmHost || 'localhost'}:${llmSettings.localLlmPort || '1234'}` : null,
         },
