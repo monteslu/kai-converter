@@ -74,6 +74,7 @@ result = api.process_audio(
     whisper_model='${options.whisperModel || 'small'}',
     language='${options.language || 'en'}',
     four_stems=${options.fourStems ? 'True' : 'False'},
+    features=${options.features ? `['${options.features.join("', '")}']` : 'None'},
     llm_enabled=${options.llm?.enabled ? 'True' : 'False'},
     llm_provider=${options.llm?.provider ? `'${options.llm.provider}'` : 'None'},
     llm_model=${options.llm?.model ? `'${options.llm.model}'` : 'None'},

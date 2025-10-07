@@ -125,6 +125,7 @@ export default function ConvertScreen() {
         whisperModel,
         language: language === 'auto' ? 'en' : language,
         fourStems,
+        features: ['f0', 'tempo'],  // Enable musical analysis by default
         llm: {
           enabled: llmSettings.enabled !== undefined ? llmSettings.enabled : true,
           provider: llmSettings.provider || null,
