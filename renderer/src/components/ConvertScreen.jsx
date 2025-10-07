@@ -396,7 +396,7 @@ export default function ConvertScreen() {
               disabled={isProcessing}
               className="mr-2"
             />
-            <span>2-stem (vocals + music) - Smaller file</span>
+            <span>2-stem (vocals + music) - Smaller KAI file</span>
           </label>
           <label className="flex items-center mt-2">
             <input
