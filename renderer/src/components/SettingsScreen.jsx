@@ -286,12 +286,23 @@ export default function SettingsScreen() {
                   </div>
                 )}
 
-                <button
-                  onClick={checkSystem}
-                  className="w-full px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Refresh System Check
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={checkSystem}
+                    className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
+                  >
+                    Refresh System Check
+                  </button>
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('forceSetup', 'true');
+                      window.location.reload();
+                    }}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Re-run Setup Wizard
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="text-center py-4">

@@ -41,6 +41,14 @@ export default function App() {
   // Check if setup is complete
   useEffect(() => {
     async function checkSetup() {
+      // Check if user wants to force setup wizard
+      const forceSetupFlag = localStorage.getItem('forceSetup') === 'true';
+      if (forceSetupFlag) {
+        localStorage.removeItem('forceSetup');
+        setSetupComplete(false);
+        return;
+      }
+
       if (window.electronAPI) {
         const systemInfo = await window.electronAPI.checkSystem();
 
