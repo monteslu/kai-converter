@@ -236,6 +236,7 @@ export default function ConvertScreen() {
               <option value="small">small (recommended)</option>
               <option value="medium">medium</option>
               <option value="large-v3">large-v3 (best quality)</option>
+              <option value="large-v3-turbo">large-v3-turbo (best efficiency)</option>
             </select>
           </div>
           <div>

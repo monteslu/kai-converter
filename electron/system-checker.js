@@ -115,7 +115,7 @@ export class SystemChecker {
       if (pythonTest.whisper) {
         result.whisper.available = true;
         // Check for downloaded models
-        const models = ['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3'];
+        const models = ['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3', 'large-v3-turbo'];
         result.whisper.models = models.filter((m) => this._checkWhisperModel(m));
       }
     } catch (error) {
@@ -136,6 +136,7 @@ export class SystemChecker {
       { name: 'small', size: 500 * 1024 * 1024, description: 'Recommended balance' },
       { name: 'medium', size: 1500 * 1024 * 1024, description: 'Good accuracy' },
       { name: 'large-v3', size: 3000 * 1024 * 1024, description: 'Best accuracy' },
+      { name: 'large-v3-turbo', size: 1600 * 1024 * 1024, description: 'Best efficiency' },
     ];
   }
 }

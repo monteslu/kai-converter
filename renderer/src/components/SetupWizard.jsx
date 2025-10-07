@@ -25,6 +25,7 @@ export default function SetupWizard({ onComplete }) {
     { name: 'small', size: '500MB', description: '⭐ Recommended balance' },
     { name: 'medium', size: '1.5GB', description: 'Good accuracy' },
     { name: 'large-v3', size: '3GB', description: 'Best accuracy' },
+    { name: 'large-v3-turbo', size: '1.6GB', description: '🚀 Best efficiency' },
   ];
 
   // Step 1: Check system on mount
