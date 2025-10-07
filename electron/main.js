@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { PythonBridge } from './python-bridge.js';
 import { SystemChecker } from './system-checker.js';
+import { DownloadManager } from './download-manager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -10,6 +11,7 @@ const __dirname = dirname(__filename);
 // Initialize bridges
 const pythonBridge = new PythonBridge();
 const systemChecker = new SystemChecker();
+const downloadManager = new DownloadManager();
 
 const isDev = !app.isPackaged;
 
@@ -125,13 +127,61 @@ ipcMain.handle('process-audio', async (event, options) => {
   }
 });
 
-// Download component (placeholder for now - will be fully implemented with download manager)
-ipcMain.handle('download-component', async (event, component) => {
-  // TODO: Implement download manager in next task
-  return {
-    success: false,
-    error: 'Download manager not implemented yet',
-  };
+// Download component
+ipcMain.handle('download-component', async (event, options) => {
+  try {
+    const { component, variant, model } = options;
+
+    let result;
+
+    // Progress callback to send updates to renderer
+    const progressCallback = (progress) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('download-progress', {
+          component,
+          ...progress,
+        });
+      }
+    };
+
+    // Route to appropriate download method
+    switch (component) {
+      case 'pytorch':
+        result = await downloadManager.downloadPyTorch(variant || 'auto', progressCallback);
+        break;
+
+      case 'demucs':
+        result = await downloadManager.downloadDemucs(progressCallback);
+        break;
+
+      case 'whisper':
+        result = await downloadManager.downloadWhisper(progressCallback);
+        break;
+
+      case 'whisper-model':
+        result = await downloadManager.downloadWhisperModel(model || 'small', progressCallback);
+        break;
+
+      case 'demucs-model':
+        result = await downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
+        break;
+
+      default:
+        return {
+          success: false,
+          error: `Unknown component: ${component}`,
+        };
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Download error:', error);
+    return {
+      success: false,
+      error: error.error || error.message,
+      stderr: error.stderr,
+    };
+  }
 });
 
 // File dialogs (will be fully implemented in Phase 3)
