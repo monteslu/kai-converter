@@ -254,7 +254,18 @@ class KaiProcessor:
                 # Prepare Whisper context with LRCLIB vocabulary hints
                 title = metadata['song'].get('title', '')
                 artist = metadata['song'].get('artist', '')
+
+                # Emit LRCLIB lookup progress
+                self._emit_progress(4, 9, f"Looking up lyrics for '{title}' on LRCLIB...", 0.1)
                 initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url)
+
+                # Report LRCLIB lookup result
+                if lyrics_temp_file:
+                    self._emit_progress(4, 9, f"✓ Found reference lyrics - using for Whisper context{whisper_device_info}", 0.2)
+                    logger.info("✓ LRCLIB lookup successful - vocabulary hints prepared")
+                else:
+                    self._emit_progress(4, 9, f"⚠ No reference lyrics found - transcribing without hints{whisper_device_info}", 0.2)
+                    logger.warning("⚠ LRCLIB lookup failed - proceeding without vocabulary hints")
 
                 logger.info("Starting smart chunking and transcription...")
 
