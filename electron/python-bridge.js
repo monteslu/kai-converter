@@ -148,6 +148,84 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
   }
 
   /**
+   * Read audio file metadata (ID3 tags)
+   *
+   * @param {string} filePath - Path to audio file
+   * @returns {Promise<Object>} Metadata result
+   */
+  async readAudioMetadata(filePath) {
+    return new Promise((resolve) => {
+      const args = [
+        '-c',
+        `
+import sys
+import json
+sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
+
+from kai_pack.audio_loader import AudioLoader
+
+try:
+    loader = AudioLoader()
+    audio, sr, metadata = loader.load('${filePath.replace(/\\/g, '\\\\')}')
+    result = {
+        'success': True,
+        'title': metadata.get('title'),
+        'artist': metadata.get('artist'),
+        'album': metadata.get('album'),
+        'duration': len(audio) / sr if len(audio.shape) > 0 else 0
+    }
+    print(json.dumps(result))
+except Exception as e:
+    result = {'success': False, 'error': str(e), 'title': None, 'artist': None}
+    print(json.dumps(result))
+`
+      ];
+
+      const python = spawn(this.pythonPath, args, {
+        cwd: join(__dirname, '..'),
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+
+      let output = '';
+
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      python.on('close', (code) => {
+        if (code === 0 && output.trim()) {
+          try {
+            resolve(JSON.parse(output.trim()));
+          } catch (e) {
+            resolve({
+              success: false,
+              error: 'Failed to parse response',
+              title: null,
+              artist: null,
+            });
+          }
+        } else {
+          resolve({
+            success: false,
+            error: 'Failed to read metadata',
+            title: null,
+            artist: null,
+          });
+        }
+      });
+
+      python.on('error', () => {
+        resolve({
+          success: false,
+          error: 'Python not found',
+          title: null,
+          artist: null,
+        });
+      });
+    });
+  }
+
+  /**
    * Fetch lyrics from LRCLIB
    *
    * @param {string} title - Song title
