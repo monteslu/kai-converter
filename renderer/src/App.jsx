@@ -40,9 +40,21 @@ export default function App() {
 
   // Check if setup is complete
   useEffect(() => {
-    // TODO: Check if models are downloaded
-    // For now, assume setup is complete
-    setSetupComplete(true);
+    async function checkSetup() {
+      if (window.electronAPI) {
+        const systemInfo = await window.electronAPI.checkSystem();
+
+        // Setup is complete if all required components are installed
+        const isComplete =
+          systemInfo.python?.available &&
+          systemInfo.pytorch?.available &&
+          systemInfo.demucs?.available &&
+          systemInfo.whisper?.available;
+
+        setSetupComplete(isComplete);
+      }
+    }
+    checkSetup();
   }, []);
 
   // Show setup wizard if not complete
