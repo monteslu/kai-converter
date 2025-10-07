@@ -396,7 +396,7 @@ export default function ConvertScreen() {
               disabled={isProcessing}
               className="mr-2"
             />
-            <span>2-stem (vocals + music) - Faster</span>
+            <span>2-stem (vocals + music) - Smaller file</span>
           </label>
           <label className="flex items-center mt-2">
             <input
@@ -407,7 +407,7 @@ export default function ConvertScreen() {
               disabled={isProcessing}
               className="mr-2"
             />
-            <span>4-stem (vocals + drums + bass + other) - Better quality</span>
+            <span>4-stem (vocals + drums + bass + other)</span>
           </label>
         </div>
       </div>
