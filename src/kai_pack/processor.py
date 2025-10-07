@@ -72,13 +72,14 @@ class KaiProcessor:
         self.song_json_generator = SongJsonGenerator()
         self.packager = KaiPackager()
 
-    def _emit_progress(self, step: int, total: int, message: str) -> None:
+    def _emit_progress(self, step: int, total: int, message: str, sub_progress: float = 0.0) -> None:
         """Emit progress update if callback is registered.
 
         Args:
             step: Current processing step (1-9)
             total: Total number of steps (usually 9)
             message: Progress message describing current operation
+            sub_progress: Progress within current step (0.0 to 1.0)
         """
         if self.progress_callback:
             try:
@@ -96,9 +97,12 @@ class KaiProcessor:
                     9: 2    # Packaging KAI file
                 }
 
-                # Calculate cumulative percentage
+                # Calculate cumulative percentage up to current step
                 completed_weight = sum(step_weights.get(i, 0) for i in range(1, step))
-                percent = completed_weight
+
+                # Add sub-progress within current step
+                current_step_weight = step_weights.get(step, 0)
+                percent = completed_weight + (current_step_weight * sub_progress)
 
                 stage = f"step_{step}"
                 self.progress_callback(stage, percent, message)
@@ -186,7 +190,8 @@ class KaiProcessor:
                 })
                 
                 # Step 3: Stem separation
-                self._emit_progress(3, 9, "Separating stems with Demucs...")
+                device_info = f" on {self.stem_separator.device.upper()}"
+                self._emit_progress(3, 9, f"Separating stems with Demucs{device_info}...", 0.0)
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 3/9: PERFORMING STEM SEPARATION (DEMUCS)")
                 logger.info("=" * 60)
@@ -232,7 +237,9 @@ class KaiProcessor:
                         logger.info("  ✓ Using 2-stem mode: vocals + music only")
                     
                 # Step 4: Automatic lyrics transcription and alignment
-                self._emit_progress(4, 9, "Transcribing lyrics with Whisper...")
+                whisper_device = self.lyrics_transcriber.device if hasattr(self.lyrics_transcriber, 'device') else 'unknown'
+                whisper_device_info = f" on {whisper_device.upper()}" if whisper_device != 'unknown' else ""
+                self._emit_progress(4, 9, f"Transcribing lyrics with Whisper{whisper_device_info}...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 4/9: AI LYRICS TRANSCRIPTION (WHISPER FULL AUDIO)")
                 logger.info("=" * 60)
