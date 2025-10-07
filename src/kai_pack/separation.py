@@ -3,7 +3,7 @@
 import logging
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 
 import torch
 import torchaudio
@@ -11,9 +11,25 @@ import numpy as np
 from demucs.pretrained import get_model
 from demucs.apply import apply_model
 from demucs.audio import convert_audio
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
+
+
+class TqdmCallback(tqdm):
+    """Custom tqdm that calls a progress callback."""
+
+    def __init__(self, *args, callback=None, **kwargs):
+        self.callback = callback
+        super().__init__(*args, **kwargs)
+
+    def update(self, n=1):
+        super().update(n)
+        if self.callback and self.total:
+            # Calculate progress as 0.0 to 1.0
+            progress = self.n / self.total
+            self.callback(progress)
 
 
 class StemSeparator:
@@ -57,21 +73,23 @@ class StemSeparator:
         logger.info(f"Model sources: {self.source_names}")
         
     def separate_stems(
-        self, 
-        audio: np.ndarray, 
+        self,
+        audio: np.ndarray,
         sample_rate: int,
-        num_stems: int = 2
+        num_stems: int = 2,
+        progress_callback: Optional[Callable[[float], None]] = None
     ) -> Dict[str, np.ndarray]:
         """
         Separate audio into stems using Demucs.
-        
+
         Args:
             audio: stereo audio array (2, samples)
             sample_rate: audio sample rate
             num_stems: number of stems to output (2 or 4). Default is 2.
                       2 = vocals + music
                       4 = vocals + drums + bass + other
-            
+            progress_callback: Optional callback for progress updates (0.0 to 1.0)
+
         Returns:
             Dict mapping stem names to audio arrays
         """
@@ -92,17 +110,40 @@ class StemSeparator:
         )
         audio_tensor = audio_tensor.to(self.device)
         
-        # Apply the model
+        # Apply the model with progress callback
         with torch.no_grad():
-            sources = apply_model(
-                self.model,
-                audio_tensor,
-                device=self.device,
-                shifts=1,
-                split=True,
-                overlap=self.overlap,
-                progress=True
-            )
+            if progress_callback:
+                # Monkey-patch tqdm temporarily to capture progress
+                import demucs.apply
+                original_tqdm = demucs.apply.tqdm
+
+                def tqdm_wrapper(*args, **kwargs):
+                    kwargs['file'] = None  # Disable output to stdout
+                    return TqdmCallback(*args, callback=progress_callback, **kwargs)
+
+                try:
+                    demucs.apply.tqdm = tqdm_wrapper
+                    sources = apply_model(
+                        self.model,
+                        audio_tensor,
+                        device=self.device,
+                        shifts=1,
+                        split=True,
+                        overlap=self.overlap,
+                        progress=True
+                    )
+                finally:
+                    demucs.apply.tqdm = original_tqdm
+            else:
+                sources = apply_model(
+                    self.model,
+                    audio_tensor,
+                    device=self.device,
+                    shifts=1,
+                    split=True,
+                    overlap=self.overlap,
+                    progress=True
+                )
             
         # Convert back to original sample rate if needed
         if self.model.samplerate != sample_rate:

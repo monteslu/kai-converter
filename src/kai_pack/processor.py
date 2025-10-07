@@ -200,9 +200,23 @@ class KaiProcessor:
                 logger.info("Separating into: vocals, drums, bass, other")
 
                 start_step = datetime.utcnow()
-                stems = self.stem_separator.separate_stems(audio_data, self.sample_rate)
+
+                # Create progress callback for Demucs
+                def demucs_progress(sub_progress: float):
+                    """Report Demucs progress to UI."""
+                    percent = int(sub_progress * 100)
+                    self._emit_progress(3, 9, f"Separating stems with Demucs{device_info}... {percent}%", sub_progress)
+
+                stems = self.stem_separator.separate_stems(
+                    audio_data,
+                    self.sample_rate,
+                    progress_callback=demucs_progress
+                )
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
+                # Emit completion of stem separation
+                self._emit_progress(3, 9, f"✓ Stem separation complete{device_info}", 1.0)
+
                 logger.info(f"✓ Stems separated: {', '.join(stems.keys())}")
                 for stem_name, stem_audio in stems.items():
                     logger.info(f"  - {stem_name}: {stem_audio.shape}")
@@ -272,7 +286,10 @@ class KaiProcessor:
                 start_step = datetime.utcnow()
                 alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio, initial_prompt=initial_prompt)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
+                # Emit completion of transcription
+                self._emit_progress(4, 9, f"✓ Transcription complete - {len(alignment_data.get('lines', []))} lines{whisper_device_info}", 1.0)
+
                 logger.info(f"✓ Transcription completed:")
                 logger.info(f"  - Lines found: {len(alignment_data.get('lines', []))}")
                 logger.info(f"  - Confidence: {alignment_data.get('confidence', 0.0):.2f}")
