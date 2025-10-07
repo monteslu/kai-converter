@@ -201,17 +201,9 @@ class KaiProcessor:
 
                 start_step = datetime.utcnow()
 
-                # Create progress callback for Demucs
-                def demucs_progress(sub_progress: float):
-                    """Report Demucs progress to UI."""
-                    percent = int(sub_progress * 100)
-                    self._emit_progress(3, 9, f"Separating stems with Demucs{device_info}... {percent}%", sub_progress)
-
-                stems = self.stem_separator.separate_stems(
-                    audio_data,
-                    self.sample_rate,
-                    progress_callback=demucs_progress
-                )
+                # Demucs doesn't support progress callbacks, so we just show a steady message
+                # The UI will see "Separating stems with Demucs on CUDA..." throughout this phase
+                stems = self.stem_separator.separate_stems(audio_data, self.sample_rate)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
 
                 # Emit completion of stem separation

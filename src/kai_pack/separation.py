@@ -11,25 +11,9 @@ import numpy as np
 from demucs.pretrained import get_model
 from demucs.apply import apply_model
 from demucs.audio import convert_audio
-from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
-
-
-class TqdmCallback(tqdm):
-    """Custom tqdm that calls a progress callback."""
-
-    def __init__(self, *args, callback=None, **kwargs):
-        self.callback = callback
-        super().__init__(*args, **kwargs)
-
-    def update(self, n=1):
-        super().update(n)
-        if self.callback and self.total:
-            # Calculate progress as 0.0 to 1.0
-            progress = self.n / self.total
-            self.callback(progress)
 
 
 class StemSeparator:
@@ -76,8 +60,7 @@ class StemSeparator:
         self,
         audio: np.ndarray,
         sample_rate: int,
-        num_stems: int = 2,
-        progress_callback: Optional[Callable[[float], None]] = None
+        num_stems: int = 2
     ) -> Dict[str, np.ndarray]:
         """
         Separate audio into stems using Demucs.
@@ -88,7 +71,6 @@ class StemSeparator:
             num_stems: number of stems to output (2 or 4). Default is 2.
                       2 = vocals + music
                       4 = vocals + drums + bass + other
-            progress_callback: Optional callback for progress updates (0.0 to 1.0)
 
         Returns:
             Dict mapping stem names to audio arrays
@@ -110,49 +92,19 @@ class StemSeparator:
         )
         audio_tensor = audio_tensor.to(self.device)
         
-        # Apply the model with progress callback
+        # Apply the model
+        # Note: Demucs doesn't provide progress callbacks, so we just disable tqdm output
+        # The UI will show a steady message like "Separating stems on CUDA..."
         with torch.no_grad():
-            if progress_callback:
-                # Monkey-patch tqdm module temporarily to capture progress
-                import demucs.apply
-                import types
-
-                # Save original tqdm module
-                original_tqdm_module = demucs.apply.tqdm
-
-                # Create a wrapper function
-                def tqdm_wrapper(*args, **kwargs):
-                    kwargs['file'] = None  # Disable output to stdout
-                    kwargs['disable'] = False
-                    return TqdmCallback(*args, callback=progress_callback, **kwargs)
-
-                # Create a fake module with tqdm attribute
-                fake_module = types.SimpleNamespace(tqdm=tqdm_wrapper)
-
-                try:
-                    # Replace the tqdm module in demucs.apply
-                    demucs.apply.tqdm = fake_module
-                    sources = apply_model(
-                        self.model,
-                        audio_tensor,
-                        device=self.device,
-                        shifts=1,
-                        split=True,
-                        overlap=self.overlap,
-                        progress=True
-                    )
-                finally:
-                    demucs.apply.tqdm = original_tqdm_module
-            else:
-                sources = apply_model(
-                    self.model,
-                    audio_tensor,
-                    device=self.device,
-                    shifts=1,
-                    split=True,
-                    overlap=self.overlap,
-                    progress=True
-                )
+            sources = apply_model(
+                self.model,
+                audio_tensor,
+                device=self.device,
+                shifts=1,
+                split=True,
+                overlap=self.overlap,
+                progress=False  # Disable tqdm to avoid stdout clutter
+            )
             
         # Convert back to original sample rate if needed
         if self.model.samplerate != sample_rate:
