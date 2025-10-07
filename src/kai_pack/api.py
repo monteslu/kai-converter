@@ -88,7 +88,13 @@ class KaiAPI:
         chunk_size: int = 44100,
         overlap: float = 0.25,
         include_id3_raw: bool = True,
-        verbose: bool = False
+        verbose: bool = False,
+        # LLM lyric correction parameters
+        llm_enabled: bool = False,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Process an audio file into KAI karaoke format.
@@ -209,6 +215,45 @@ class KaiAPI:
                 include_id3_raw=include_id3_raw,
                 create_music_stem=not four_stems
             )
+
+            # Apply LLM lyric correction if enabled
+            if llm_enabled and llm_provider:
+                self._emit_progress("llm_correction", 95, "Applying AI lyric correction...")
+                logger.info("LLM correction enabled, running fix_lyrics...")
+
+                try:
+                    from ..utils.fix_lyrics import fix_lyrics_direct
+
+                    # Map GUI provider names to fix_lyrics provider names
+                    provider_map = {
+                        'claude': 'anthropic',
+                        'openai': 'openai',
+                        'local': 'lmstudio'
+                    }
+
+                    fix_provider = provider_map.get(llm_provider, llm_provider)
+
+                    # Call fix_lyrics_direct on the output KAI file
+                    fix_result = fix_lyrics_direct(
+                        kai_file=output_path,
+                        lyrics_source=None,  # Auto-fetch based on metadata
+                        output=output_path,  # Overwrite the original file
+                        llm_provider=fix_provider,
+                        llm_model=llm_model,
+                        llm_api_key=llm_api_key,
+                        llm_base_url=llm_base_url,
+                        progress_callback=self.progress_callback
+                    )
+
+                    if fix_result.get("success"):
+                        logger.info(f"LLM correction applied: {fix_result.get('corrections_applied', 0)} corrections")
+                    else:
+                        logger.warning(f"LLM correction failed: {fix_result.get('error', 'Unknown error')}")
+                        # Don't fail the entire process if LLM correction fails
+
+                except Exception as e:
+                    logger.error(f"LLM correction error: {e}")
+                    # Don't fail the entire process if LLM correction fails
 
             self._emit_progress("complete", 100, "Processing complete!")
 

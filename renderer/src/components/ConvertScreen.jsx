@@ -25,6 +25,8 @@ export default function ConvertScreen() {
         setWhisperModel(settings.whisperModel || 'large-v3-turbo');
         setLanguage(settings.language || 'auto');
         setFourStems(settings.stems === 4);
+        // Store LLM settings for later use
+        window._kaiLlmSettings = settings.llm;
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -114,12 +116,25 @@ export default function ConvertScreen() {
     });
 
     try {
+      // Get LLM settings from stored state
+      const llmSettings = window._kaiLlmSettings || {};
+
       const options = {
         inputFile,
         outputFile,
         whisperModel,
         language: language === 'auto' ? 'en' : language,
         fourStems,
+        llm: {
+          enabled: llmSettings.enabled || false,
+          provider: llmSettings.provider || null,
+          model: llmSettings.provider === 'claude' ? llmSettings.claudeModel :
+                 llmSettings.provider === 'openai' ? llmSettings.openaiModel : null,
+          apiKey: llmSettings.provider === 'claude' ? llmSettings.claudeApiKey :
+                  llmSettings.provider === 'openai' ? llmSettings.openaiApiKey : null,
+          baseUrl: llmSettings.provider === 'local' ?
+                   `http://${llmSettings.localLlmHost || 'localhost'}:${llmSettings.localLlmPort || '1234'}` : null,
+        },
       };
 
       const processingResult = await window.electronAPI.processAudio(options);

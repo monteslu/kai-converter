@@ -44,6 +44,12 @@ export class PythonBridge {
    * @param {string} options.whisperModel - Whisper model size
    * @param {string} options.language - Language code
    * @param {boolean} options.fourStems - Use 4-stem separation
+   * @param {Object} options.llm - LLM settings for lyric correction
+   * @param {boolean} options.llm.enabled - Enable LLM lyric correction
+   * @param {string} options.llm.provider - LLM provider (claude/openai/local)
+   * @param {string} options.llm.model - LLM model name
+   * @param {string} options.llm.apiKey - API key for LLM provider
+   * @param {string} options.llm.baseUrl - Base URL for local LLM
    * @param {Function} progressCallback - Called with progress updates
    * @returns {Promise<Object>} Processing result
    */
@@ -67,7 +73,12 @@ result = api.process_audio(
     output_file=${options.outputFile ? `'${options.outputFile.replace(/\\/g, '\\\\')}'` : 'None'},
     whisper_model='${options.whisperModel || 'small'}',
     language='${options.language || 'en'}',
-    four_stems=${options.fourStems ? 'True' : 'False'}
+    four_stems=${options.fourStems ? 'True' : 'False'},
+    llm_enabled=${options.llm?.enabled ? 'True' : 'False'},
+    llm_provider=${options.llm?.provider ? `'${options.llm.provider}'` : 'None'},
+    llm_model=${options.llm?.model ? `'${options.llm.model}'` : 'None'},
+    llm_api_key=${options.llm?.apiKey ? `'${options.llm.apiKey.replace(/'/g, "\\'")}'` : 'None'},
+    llm_base_url=${options.llm?.baseUrl ? `'${options.llm.baseUrl}'` : 'None'}
 )
 
 print(f"RESULT:{json.dumps(result)}", flush=True)
