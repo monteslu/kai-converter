@@ -210,30 +210,30 @@ ffmpeg -version | head -1
 source venv/bin/activate
 ```
 
-All main functionality is available through simple shell scripts:
+All main functionality is available through simple shell scripts in the `cli/` directory:
 
 ### 1. Convert Audio to KAI
 
 ```bash
 # Basic conversion (2-stem: vocals + music, English)
-./kai_pack.sh song.mp3
+./cli/kai_pack.sh song.mp3
 
 # With options
-./kai_pack.sh --language es --whisper-model large --four-stems song.mp3
+./cli/kai_pack.sh --language es --whisper-model large --four-stems song.mp3
 
 # Auto-fix lyrics with OpenAI
 export OPENAI_API_KEY="your-key"
-./kai_pack.sh --fix-lyrics --language auto song.mp3
+./cli/kai_pack.sh --fix-lyrics --language auto song.mp3
 ```
 
 ### 2. Convert YouTube to KAI
 
 ```bash
 # Download and convert YouTube video
-./convert_youtube.sh --title "Song Name" --artist "Artist" 'https://youtube.com/watch?v=...'
+./cli/convert_youtube.sh --title "Song Name" --artist "Artist" 'https://youtube.com/watch?v=...'
 
 # With language detection and auto-fixing
-./convert_youtube.sh \
+./cli/convert_youtube.sh \
   --title "Mixed Language Song" \
   --artist "Artist" \
   --language auto \
@@ -245,38 +245,35 @@ export OPENAI_API_KEY="your-key"
 
 ```bash
 # Process all MP3 files in a folder (skips existing KAI files)
-./batch_pack.sh /path/to/music/folder/
+./cli/batch_pack.sh /path/to/music/folder/
 
 # With options (passed to each file)
-./batch_pack.sh --language auto --fix-lyrics --llm-provider openai /music/albums/
+./cli/batch_pack.sh --language auto --fix-lyrics --llm-provider openai /music/albums/
 
 # See what would be processed without doing it
-./batch_pack.sh --dry-run /music/test/
+./cli/batch_pack.sh --dry-run /music/test/
 
 # High quality batch processing
-./batch_pack.sh --four-stems --whisper-model large-v3 --fix-lyrics /music/collection/
+./cli/batch_pack.sh --four-stems --whisper-model large-v3 --fix-lyrics /music/collection/
 ```
 
 ### 4. View and Fix Lyrics
 
 ```bash
 # View lyrics from KAI file
-./log_kai_lyrics.sh song.kai
+./cli/log_kai_lyrics.sh song.kai
 
-### 5. Regenerate Song.json (Optional)
+### 5. Regenerate Lyrics (Optional)
 
 ```bash
-# Regenerate transcription/analysis while keeping existing stems
-./regen_song_json.sh song.kai
+# Regenerate lyrics with better Whisper model
+./cli/regen_lyrics.sh song.kai
 
-# Use better Whisper model for improved transcription
-./regen_song_json.sh --whisper-model large-v3 song.kai
+# Use different Whisper model
+./cli/regen_lyrics.sh --whisper-model large-v3 song.kai
 
-# Regenerate with different language and auto-fix lyrics
-./regen_song_json.sh --language es --fix-lyrics --llm-provider openai song.kai
-
-# Custom features and output to new file
-./regen_song_json.sh --features "f0,tempo,chords" song.kai song_v2.kai
+# Regenerate with different language
+./cli/regen_lyrics.sh --language es song.kai
 ```
 
 ### 6. Fix Lyrics (Optional)
@@ -284,19 +281,19 @@ export OPENAI_API_KEY="your-key"
 ```bash
 # Fix lyrics manually (auto-fetch)
 export OPENAI_API_KEY="your-key"
-./fix_lyrics.sh song.kai
+./cli/fix_lyrics.sh song.kai
 
 # Fix lyrics with custom source
-./fix_lyrics.sh song.kai --lyrics-source https://genius.com/song-url
+./cli/fix_lyrics.sh song.kai --lyrics-source https://genius.com/song-url
 
 # Fix lyrics with custom output
-./fix_lyrics.sh song.kai --output song_corrected.kai
+./cli/fix_lyrics.sh song.kai --output song_corrected.kai
 
 # Use different LLM providers
-./fix_lyrics.sh song.kai --llm-provider lmstudio      # Local LM Studio
-./fix_lyrics.sh song.kai --llm-provider anthropic     # Anthropic Claude
-./fix_lyrics.sh song.kai --llm-provider gemini        # Google Gemini
-./fix_lyrics.sh song.kai --llm-provider openai        # OpenAI (default)
+./cli/fix_lyrics.sh song.kai --llm-provider lmstudio      # Local LM Studio
+./cli/fix_lyrics.sh song.kai --llm-provider anthropic     # Anthropic Claude
+./cli/fix_lyrics.sh song.kai --llm-provider gemini        # Google Gemini
+./cli/fix_lyrics.sh song.kai --llm-provider openai        # OpenAI (default)
 ```
 
 #### LLM Provider Options
@@ -304,7 +301,7 @@ export OPENAI_API_KEY="your-key"
 The lyrics correction feature supports multiple AI providers:
 
 - **OpenAI** (default): Requires `OPENAI_API_KEY` environment variable
-- **LM Studio** (local): Free local inference, requires LM Studio running on localhost:1234  
+- **LM Studio** (local): Free local inference, requires LM Studio running on localhost:1234
 - **Anthropic Claude**: Requires `ANTHROPIC_API_KEY` environment variable
 - **Google Gemini**: Requires `GEMINI_API_KEY` or `GOOGLE_API_KEY` environment variable
 - **OpenAI-compatible**: For Ollama, Together.ai, etc. (specify `--llm-base-url`)
@@ -312,32 +309,32 @@ The lyrics correction feature supports multiple AI providers:
 ```bash
 # Examples with different providers
 export OPENAI_API_KEY="your-key"
-./fix_lyrics.sh song.kai --llm-provider openai --llm-model gpt-4o
+./cli/fix_lyrics.sh song.kai --llm-provider openai --llm-model gpt-4o
 
-export ANTHROPIC_API_KEY="your-key" 
-./fix_lyrics.sh song.kai --llm-provider anthropic --llm-model claude-3-5-sonnet-20241022
+export ANTHROPIC_API_KEY="your-key"
+./cli/fix_lyrics.sh song.kai --llm-provider anthropic --llm-model claude-3-5-sonnet-20241022
 
 export GEMINI_API_KEY="your-key"
-./fix_lyrics.sh song.kai --llm-provider gemini --llm-model gemini-1.5-pro
+./cli/fix_lyrics.sh song.kai --llm-provider gemini --llm-model gemini-1.5-pro
 
 # Local LM Studio (free, private) - model chosen in LM Studio GUI
-./fix_lyrics.sh song.kai --llm-provider lmstudio
+./cli/fix_lyrics.sh song.kai --llm-provider lmstudio
 ```
 
-### 4. Create Karaoke Video
+### 7. Create Karaoke Video
 
 ```bash
 # Generate MP4 karaoke video with synchronized lyrics (instrumental only)
-./make_movie.sh song.kai
+./cli/make_movie.sh song.kai
 
 # Include vocals in the video
-./make_movie.sh --with-vocals song.kai
+./cli/make_movie.sh --with-vocals song.kai
 
 # Custom output name
-./make_movie.sh song.kai my_video.mp4
+./cli/make_movie.sh song.kai my_video.mp4
 
 # Custom output with vocals
-./make_movie.sh --with-vocals song.kai full_version.mp4
+./cli/make_movie.sh --with-vocals song.kai full_version.mp4
 ```
 
 ## Script Options

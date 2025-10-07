@@ -203,7 +203,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "DRY RUN: Would process ${#TO_PROCESS[@]} files"
     echo "Commands that would be executed:"
     for mp3_file in "${TO_PROCESS[@]}"; do
-        echo "  ./kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
+        echo "  ./cli/kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
     done
     exit 0
 fi
@@ -227,7 +227,7 @@ for i in "${!TO_PROCESS[@]}"; do
     echo "----------------------------------------"
 
     # Build kai_pack command
-    KAI_PACK_CMD="./kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
+    KAI_PACK_CMD="./cli/kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
 
     if [ "$VERBOSE" = true ]; then
         echo "Running: $KAI_PACK_CMD"
@@ -278,14 +278,14 @@ if [ $FAILED_COUNT -gt 0 ]; then
     done
     echo ""
     echo "You can retry failed files individually with:"
-    echo "  ./kai_pack.sh [OPTIONS] \"path/to/file.mp3\""
+    echo "  ./cli/kai_pack.sh [OPTIONS] \"path/to/file.mp3\""
 fi
 
 echo ""
 echo "Next steps:"
-echo "  - View lyrics: ./log_kai_lyrics.sh \"file.kai\""
-echo "  - Create videos: ./make_movie.sh \"file.kai\""
-echo "  - Batch create videos: find \"$FOLDER\" -name \"*.kai\" -exec ./make_movie.sh {} \\;"
+echo "  - View lyrics: ./cli/log_kai_lyrics.sh \"file.kai\""
+echo "  - Create videos: ./cli/make_movie.sh \"file.kai\""
+echo "  - Batch create videos: find \"$FOLDER\" -name \"*.kai\" -exec ./cli/make_movie.sh {} \\;"
 
 if [ $FAILED_COUNT -gt 0 ]; then
     exit 1

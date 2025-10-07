@@ -2,6 +2,9 @@
 *.mp3
 *.mp4
 songs/
+cli/*.kai
+cli/*.mp3
+cli/*.mp4
 
 # Python
 __pycache__/

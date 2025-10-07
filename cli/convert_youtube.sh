@@ -296,7 +296,7 @@ echo "Converting to KAI format..."
 echo "----------------------------------------"
 
 # Build kai_pack command
-KAI_PACK_CMD="./kai_pack.sh"
+KAI_PACK_CMD="./cli/kai_pack.sh"
 KAI_PACK_CMD="$KAI_PACK_CMD --title \"$TITLE\""
 KAI_PACK_CMD="$KAI_PACK_CMD --artist \"$ARTIST\""
 KAI_PACK_CMD="$KAI_PACK_CMD $WHISPER_MODEL"
@@ -332,8 +332,8 @@ if [ -f "$OUTPUT_FILE" ]; then
     
     echo ""
     echo "Next steps:"
-    echo "  - View lyrics: ./log_kai_lyrics.sh \"$OUTPUT_FILE\""
-    echo "  - Create video: ./make_movie.sh \"$OUTPUT_FILE\""
+    echo "  - View lyrics: ./cli/log_kai_lyrics.sh \"$OUTPUT_FILE\""
+    echo "  - Create video: ./cli/make_movie.sh \"$OUTPUT_FILE\""
 else
     echo "Error: KAI conversion failed"
     exit 1
