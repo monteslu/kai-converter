@@ -50,10 +50,6 @@ export default function AboutScreen() {
         ) : (
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">OS:</span>
-              <span>{process.platform}</span>
-            </div>
-            <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">Python:</span>
               <span className={systemInfo?.python?.available ? 'text-green-600' : 'text-red-600'}>
                 {systemInfo?.python?.available
