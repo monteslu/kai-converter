@@ -38,6 +38,7 @@
     "wait-on": "^8.0.0"
   },
   "dependencies": {
+    "electron-store": "^11.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -56,25 +57,39 @@
       {
         "from": "python-dist",
         "to": "python",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "resources/bin",
         "to": "bin",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "resources/icon.ico"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "resources/icon.icns",
       "category": "public.app-category.music"
     },
     "linux": {
-      "target": ["AppImage", "deb", "rpm"],
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm"
+      ],
       "icon": "resources/icon.png",
       "category": "Audio"
     }

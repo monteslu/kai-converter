@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import Store from 'electron-store';
 import { PythonBridge } from './python-bridge.js';
 import { SystemChecker } from './system-checker.js';
 import { DownloadManager } from './download-manager.js';
@@ -12,6 +13,12 @@ const __dirname = dirname(__filename);
 const pythonBridge = new PythonBridge();
 const systemChecker = new SystemChecker();
 const downloadManager = new DownloadManager();
+
+// Initialize settings store
+const store = new Store({
+  name: 'kai-converter-settings',
+  encryptionKey: 'kai-converter-secure-key', // Basic encryption for API keys
+});
 
 const isDev = !app.isPackaged;
 
@@ -205,19 +212,57 @@ ipcMain.handle('select-output-folder', async () => {
   return result.filePaths[0] || null;
 });
 
-// Settings (will be fully implemented in Phase 3)
+// Settings
 ipcMain.handle('save-settings', async (event, settings) => {
-  // TODO: Save to config file
-  console.log('Save settings:', settings);
-  return { success: true };
+  try {
+    // Save all settings to encrypted store
+    store.set('settings', settings);
+    console.log('Settings saved successfully');
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to save settings:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('load-settings', async () => {
-  // TODO: Load from config file
-  return {
-    whisperModel: 'large-v3-turbo',
-    language: 'auto',
-    stems: 2,
-    gpu: 'auto',
-  };
+  try {
+    // Load settings from store with defaults
+    const settings = store.get('settings', {
+      whisperModel: 'large-v3-turbo',
+      language: 'auto',
+      stems: 2,
+      gpu: 'auto',
+      llm: {
+        enabled: false,
+        provider: 'claude',
+        claudeApiKey: '',
+        claudeModel: 'claude-3-5-sonnet-20241022',
+        openaiApiKey: '',
+        openaiModel: 'gpt-4o',
+        localLlmHost: 'localhost',
+        localLlmPort: '1234',
+      },
+    });
+    return settings;
+  } catch (error) {
+    console.error('Failed to load settings:', error);
+    // Return defaults on error
+    return {
+      whisperModel: 'large-v3-turbo',
+      language: 'auto',
+      stems: 2,
+      gpu: 'auto',
+      llm: {
+        enabled: false,
+        provider: 'claude',
+        claudeApiKey: '',
+        claudeModel: 'claude-3-5-sonnet-20241022',
+        openaiApiKey: '',
+        openaiModel: 'gpt-4o',
+        localLlmHost: 'localhost',
+        localLlmPort: '1234',
+      },
+    };
+  }
 });

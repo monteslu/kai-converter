@@ -11,6 +11,16 @@ export default function SettingsScreen() {
   const [checking, setChecking] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // LLM settings
+  const [llmEnabled, setLlmEnabled] = useState(false);
+  const [llmProvider, setLlmProvider] = useState('claude');
+  const [claudeApiKey, setClaudeApiKey] = useState('');
+  const [claudeModel, setClaudeModel] = useState('claude-3-5-sonnet-20241022');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4o');
+  const [localLlmHost, setLocalLlmHost] = useState('localhost');
+  const [localLlmPort, setLocalLlmPort] = useState('1234');
+
   // Load settings on mount
   useEffect(() => {
     loadSettings();
@@ -25,6 +35,18 @@ export default function SettingsScreen() {
         setLanguage(settings.language || 'auto');
         setStems(settings.stems || 2);
         setGpu(settings.gpu || 'auto');
+
+        // Load LLM settings
+        if (settings.llm) {
+          setLlmEnabled(settings.llm.enabled || false);
+          setLlmProvider(settings.llm.provider || 'claude');
+          setClaudeApiKey(settings.llm.claudeApiKey || '');
+          setClaudeModel(settings.llm.claudeModel || 'claude-3-5-sonnet-20241022');
+          setOpenaiApiKey(settings.llm.openaiApiKey || '');
+          setOpenaiModel(settings.llm.openaiModel || 'gpt-4o');
+          setLocalLlmHost(settings.llm.localLlmHost || 'localhost');
+          setLocalLlmPort(settings.llm.localLlmPort || '1234');
+        }
 
         const currentTheme = await window.electronAPI.getTheme();
         setTheme(currentTheme);
@@ -57,6 +79,16 @@ export default function SettingsScreen() {
           language,
           stems,
           gpu,
+          llm: {
+            enabled: llmEnabled,
+            provider: llmProvider,
+            claudeApiKey,
+            claudeModel,
+            openaiApiKey,
+            openaiModel,
+            localLlmHost,
+            localLlmPort,
+          },
         });
       }
     } catch (error) {
@@ -316,6 +348,169 @@ export default function SettingsScreen() {
                   Check System
                 </button>
               </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Lyric Correction (LLM) */}
+      <div className="card mb-4">
+        <button
+          onClick={() => toggleSection('llm')}
+          className="w-full px-6 py-4 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+        >
+          <span className="font-semibold">🤖 Lyric Correction (LLM)</span>
+          <span className="text-gray-500">{openSection === 'llm' ? '▼' : '▶'}</span>
+        </button>
+        {openSection === 'llm' && (
+          <div className="px-6 pb-6 space-y-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+            {/* Enable/Disable Toggle */}
+            <div>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={llmEnabled}
+                  onChange={(e) => setLlmEnabled(e.target.checked)}
+                  className="mr-2"
+                />
+                <span className="font-medium">Enable AI-powered lyric correction</span>
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                Use large language models to improve transcription accuracy after Whisper
+              </p>
+            </div>
+
+            {llmEnabled && (
+              <>
+                {/* Provider Selection */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">LLM Provider</label>
+                  <select
+                    className="input w-full"
+                    value={llmProvider}
+                    onChange={(e) => setLlmProvider(e.target.value)}
+                  >
+                    <option value="claude">Anthropic Claude</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="local">Local LLM (LM Studio)</option>
+                  </select>
+                </div>
+
+                {/* Claude Settings */}
+                {llmProvider === 'claude' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Claude API Key</label>
+                      <input
+                        type="password"
+                        className="input w-full"
+                        value={claudeApiKey}
+                        onChange={(e) => setClaudeApiKey(e.target.value)}
+                        placeholder="sk-ant-..."
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Get your API key from{' '}
+                        <a
+                          href="https://console.anthropic.com/"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          console.anthropic.com
+                        </a>
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Claude Model</label>
+                      <select
+                        className="input w-full"
+                        value={claudeModel}
+                        onChange={(e) => setClaudeModel(e.target.value)}
+                      >
+                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (recommended)</option>
+                        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (faster)</option>
+                        <option value="claude-3-opus-20240229">Claude 3 Opus (most capable)</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* OpenAI Settings */}
+                {llmProvider === 'openai' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">OpenAI API Key</label>
+                      <input
+                        type="password"
+                        className="input w-full"
+                        value={openaiApiKey}
+                        onChange={(e) => setOpenaiApiKey(e.target.value)}
+                        placeholder="sk-..."
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Get your API key from{' '}
+                        <a
+                          href="https://platform.openai.com/api-keys"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline"
+                        >
+                          platform.openai.com
+                        </a>
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">OpenAI Model</label>
+                      <select
+                        className="input w-full"
+                        value={openaiModel}
+                        onChange={(e) => setOpenaiModel(e.target.value)}
+                      >
+                        <option value="gpt-4o">GPT-4o (recommended)</option>
+                        <option value="gpt-4o-mini">GPT-4o mini (faster, cheaper)</option>
+                        <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* Local LLM Settings */}
+                {llmProvider === 'local' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Local LLM Host</label>
+                      <input
+                        type="text"
+                        className="input w-full"
+                        value={localLlmHost}
+                        onChange={(e) => setLocalLlmHost(e.target.value)}
+                        placeholder="localhost"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Local LLM Port</label>
+                      <input
+                        type="text"
+                        className="input w-full"
+                        value={localLlmPort}
+                        onChange={(e) => setLocalLlmPort(e.target.value)}
+                        placeholder="1234"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Default port for LM Studio is 1234. Make sure your local LLM server is running.
+                      </p>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  onClick={saveSettings}
+                  disabled={saving}
+                  className="btn-primary w-full"
+                >
+                  {saving ? 'Saving...' : 'Save LLM Settings'}
+                </button>
+              </>
             )}
           </div>
         )}
