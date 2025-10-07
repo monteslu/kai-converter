@@ -348,7 +348,7 @@ export default function ConvertScreen() {
         <h2 className="text-lg font-semibold mb-4">Processing Options</h2>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-2">Whisper Model</label>
+            <label className="block text-sm font-medium mb-2">Whisper (lyric detection) Model</label>
             <select
               className="input w-full"
               value={whisperModel}
@@ -448,9 +448,9 @@ export default function ConvertScreen() {
             )}
             {result.stats && (
               <div className="mt-2 text-gray-600 dark:text-gray-400">
-                <p>Stems: {result.stats.stems}</p>
-                {result.stats.lyrics_count > 0 && (
-                  <p>Lyrics: {result.stats.lyrics_count} lines transcribed</p>
+                <p>Stems: {fourStems ? '4 (vocals, drums, bass, other)' : '2 (vocals, music)'}</p>
+                {result.stats.lines > 0 && (
+                  <p>Lyrics: {result.stats.lines} lines transcribed</p>
                 )}
               </div>
             )}
