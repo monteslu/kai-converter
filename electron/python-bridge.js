@@ -160,19 +160,20 @@ print(f"RESULT:{json.dumps(result)}", flush=True)
         `
 import sys
 import json
+from pathlib import Path
 sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
 
-from kai_pack.audio_loader import AudioLoader
+from kai_pack.metadata import MetadataExtractor
 
 try:
-    loader = AudioLoader()
-    audio, sr, metadata = loader.load('${filePath.replace(/\\/g, '\\\\')}')
+    extractor = MetadataExtractor()
+    metadata = extractor.extract_metadata(Path('${filePath.replace(/\\/g, '\\\\')}'))
+    song_meta = metadata.get('song', {})
     result = {
         'success': True,
-        'title': metadata.get('title'),
-        'artist': metadata.get('artist'),
-        'album': metadata.get('album'),
-        'duration': len(audio) / sr if len(audio.shape) > 0 else 0
+        'title': song_meta.get('title'),
+        'artist': song_meta.get('artist'),
+        'album': song_meta.get('album')
     }
     print(json.dumps(result))
 except Exception as e:

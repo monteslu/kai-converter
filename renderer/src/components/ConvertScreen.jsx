@@ -67,6 +67,7 @@ export default function ConvertScreen() {
 
     // Read metadata
     const metadata = await window.electronAPI.readAudioMetadata(filePath);
+    console.log('Metadata result:', metadata);
     const title = metadata.title;
     const artist = metadata.artist;
 
