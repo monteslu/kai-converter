@@ -34,3 +34,12 @@ build/
 .AppleDouble
 .LSOverride
 logs/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Electron / Vite
+renderer/dist/
+dist-electron/
+*.local
