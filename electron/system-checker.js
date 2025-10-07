@@ -136,7 +136,7 @@ export class SystemChecker {
       { name: 'small', size: 500 * 1024 * 1024, description: 'Recommended balance' },
       { name: 'medium', size: 1500 * 1024 * 1024, description: 'Good accuracy' },
       { name: 'large-v3', size: 3000 * 1024 * 1024, description: 'Best accuracy' },
-      { name: 'large-v3-turbo', size: 1600 * 1024 * 1024, description: 'Best efficiency' },
+      { name: 'large-v3-turbo', size: 1600 * 1024 * 1024, description: 'Accurate and efficient' },
     ];
   }
 }

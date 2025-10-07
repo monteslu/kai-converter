@@ -104,7 +104,7 @@ export default function SettingsScreen() {
                 <option value="small">small (recommended)</option>
                 <option value="medium">medium</option>
                 <option value="large-v3">large-v3 (best quality)</option>
-                <option value="large-v3-turbo">large-v3-turbo (best efficiency)</option>
+                <option value="large-v3-turbo">large-v3-turbo (accurate and efficient)</option>
               </select>
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 This model will be used by default for new conversions
