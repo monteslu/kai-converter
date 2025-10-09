@@ -5,6 +5,14 @@
 
 set -e
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS] INPUT.kai [OUTPUT.kai]"
@@ -135,7 +143,7 @@ echo "Regenerating lyrics transcription..."
 echo "----------------------------------------"
 
 # Build Python command
-PYTHON_CMD="PYTHONPATH=\"$SCRIPT_DIR/src:\$PYTHONPATH\" python3 \"$SCRIPT_DIR/src/utils/regen_lyrics.py\""
+PYTHON_CMD="PYTHONPATH=\"$PROJECT_ROOT/src:\$PYTHONPATH\" \"$PYTHON_PATH\" \"$PROJECT_ROOT/src/utils/regen_lyrics.py\""
 PYTHON_CMD="$PYTHON_CMD \"$INPUT_KAI_FULL\""
 PYTHON_CMD="$PYTHON_CMD --output \"$OUTPUT_KAI_FULL\""
 

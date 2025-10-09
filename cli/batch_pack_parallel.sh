@@ -5,6 +5,14 @@
 
 set -e
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS] FOLDER"

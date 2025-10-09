@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import Store from 'electron-store';
@@ -9,20 +9,44 @@ import { DownloadManager } from './download-manager.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Initialize bridges
-const pythonBridge = new PythonBridge();
-const systemChecker = new SystemChecker();
-const downloadManager = new DownloadManager();
-
 // Initialize settings store
 const store = new Store({
   name: 'kai-converter-settings',
   encryptionKey: 'kai-converter-secure-key', // Basic encryption for API keys
 });
 
+// Lazy-initialize bridges (after app is ready)
+let pythonBridge = null;
+let systemChecker = null;
+let downloadManager = null;
+
+function getBridges() {
+  if (!pythonBridge) {
+    pythonBridge = new PythonBridge(sendLog);
+    systemChecker = new SystemChecker();
+    downloadManager = new DownloadManager();
+  }
+  return { pythonBridge, systemChecker, downloadManager };
+}
+
 const isDev = !app.isPackaged;
 
 let mainWindow = null;
+
+// Helper to send logs to renderer
+function sendLog(level, message) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.send('log-entry', {
+        level,
+        message,
+        timestamp: new Date().toISOString()
+      });
+    } catch (err) {
+      // Ignore errors if window is being destroyed
+    }
+  }
+}
 
 async function createWindow() {
   mainWindow = new BrowserWindow({
@@ -37,18 +61,38 @@ async function createWindow() {
     show: false, // Don't show until ready
   });
 
-  // Load the app
-  if (isDev) {
-    await mainWindow.loadURL('http://localhost:5174');
-    mainWindow.webContents.openDevTools();
-  } else {
-    await mainWindow.loadFile(join(__dirname, '..', 'renderer', 'dist', 'index.html'));
-  }
-
   // Show when ready
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+    // Test log to verify logging system
+    setTimeout(() => {
+      sendLog('info', 'KAI Converter ready - logging system initialized');
+    }, 1000);
   });
+
+  // Fallback: show window after timeout if ready-to-show doesn't fire
+  const showTimeout = setTimeout(() => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      console.warn('[Main] Window not shown after 3s, forcing show');
+      mainWindow.show();
+    }
+  }, 3000);
+
+  // Load the app
+  try {
+    if (isDev) {
+      await mainWindow.loadURL('http://localhost:5174');
+      mainWindow.webContents.openDevTools();
+    } else {
+      await mainWindow.loadFile(join(__dirname, '..', 'renderer', 'dist', 'index.html'));
+    }
+    clearTimeout(showTimeout);
+  } catch (error) {
+    console.error('[Main] Failed to load window:', error);
+    clearTimeout(showTimeout);
+    // Show window anyway so user can see what's wrong
+    mainWindow.show();
+  }
 
   // Handle window close
   mainWindow.on('closed', () => {
@@ -57,7 +101,39 @@ async function createWindow() {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  // Initialize bridges now that app is ready
+  const bridges = getBridges();
+
+  // Check if Python is available before starting
+  if (!bridges.pythonBridge.pythonPath) {
+    console.error('\n❌ FATAL ERROR: Python not found!');
+    console.error('   Error:', pythonBridge.initError);
+    console.error('   Please run: npm run setup:python\n');
+
+    // Try to show dialog in dev mode, but don't wait for it
+    if (isDev) {
+      // In dev mode, just exit immediately with error code
+      process.exit(1);
+    } else {
+      // In production, show dialog then exit
+      try {
+        const { dialog } = await import('electron');
+        await dialog.showMessageBox({
+          type: 'error',
+          title: 'Python Not Found',
+          message: 'KAI Converter requires Python to run',
+          detail: bridges.pythonBridge.initError + '\n\nPlease run: npm run setup:python',
+          buttons: ['Exit']
+        });
+      } catch (err) {
+        console.error('Failed to show dialog:', err);
+      }
+      app.quit();
+    }
+    return;
+  }
+
   // Load and apply saved theme before creating window
   const savedTheme = store.get('theme', 'system');
   nativeTheme.themeSource = savedTheme;
@@ -79,7 +155,9 @@ app.on('window-all-closed', () => {
 
 // Clean up Python processes when quitting
 app.on('before-quit', () => {
-  pythonBridge.cleanup();
+  if (pythonBridge) {
+    pythonBridge.cleanup();
+  }
 });
 
 // IPC Handlers
@@ -109,7 +187,8 @@ nativeTheme.on('updated', () => {
 // System check
 ipcMain.handle('check-system', async () => {
   try {
-    const result = await systemChecker.checkSystem();
+    const bridges = getBridges();
+    const result = await bridges.systemChecker.checkSystem();
     return result;
   } catch (error) {
     console.error('System check error:', error);
@@ -127,7 +206,8 @@ ipcMain.handle('check-system', async () => {
 // Audio processing
 ipcMain.handle('process-audio', async (event, options) => {
   try {
-    const result = await pythonBridge.processAudio(options, (progress) => {
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.processAudio(options, (progress) => {
       // Send progress to renderer
       if (mainWindow) {
         mainWindow.webContents.send('processing-progress', progress);
@@ -147,6 +227,7 @@ ipcMain.handle('process-audio', async (event, options) => {
 // Download component
 ipcMain.handle('download-component', async (event, options) => {
   try {
+    const bridges = getBridges();
     const { component, variant, model } = options;
 
     let result;
@@ -164,23 +245,23 @@ ipcMain.handle('download-component', async (event, options) => {
     // Route to appropriate download method
     switch (component) {
       case 'pytorch':
-        result = await downloadManager.downloadPyTorch(variant || 'auto', progressCallback);
+        result = await bridges.downloadManager.downloadPyTorch(variant || 'auto', progressCallback);
         break;
 
       case 'demucs':
-        result = await downloadManager.downloadDemucs(progressCallback);
+        result = await bridges.downloadManager.downloadDemucs(progressCallback);
         break;
 
       case 'whisper':
-        result = await downloadManager.downloadWhisper(progressCallback);
+        result = await bridges.downloadManager.downloadWhisper(progressCallback);
         break;
 
       case 'whisper-model':
-        result = await downloadManager.downloadWhisperModel(model || 'small', progressCallback);
+        result = await bridges.downloadManager.downloadWhisperModel(model || 'small', progressCallback);
         break;
 
       case 'demucs-model':
-        result = await downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
+        result = await bridges.downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
         break;
 
       default:
@@ -225,7 +306,8 @@ ipcMain.handle('select-output-folder', async () => {
 // Read audio metadata
 ipcMain.handle('read-audio-metadata', async (event, filePath) => {
   try {
-    const metadata = await pythonBridge.readAudioMetadata(filePath);
+    const bridges = getBridges();
+    const metadata = await bridges.pythonBridge.readAudioMetadata(filePath);
     return metadata;
   } catch (error) {
     console.error('Metadata read error:', error);
@@ -241,7 +323,8 @@ ipcMain.handle('read-audio-metadata', async (event, filePath) => {
 // Fetch lyrics from LRCLIB
 ipcMain.handle('fetch-lyrics', async (event, title, artist) => {
   try {
-    const result = await pythonBridge.fetchLyrics(title, artist);
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.fetchLyrics(title, artist);
     return result;
   } catch (error) {
     console.error('Lyrics fetch error:', error);
@@ -307,6 +390,87 @@ ipcMain.handle('load-settings', async () => {
         localLlmHost: 'localhost',
         localLlmPort: '1234',
       },
+    };
+  }
+});
+
+// Open external links
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to open external link:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get user's home directory
+ipcMain.handle('get-home-directory', async () => {
+  return app.getPath('home');
+});
+
+// Select KAI file
+ipcMain.handle('select-kai-file', async () => {
+  const { dialog } = await import('electron');
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: [
+      { name: 'KAI Files', extensions: ['kai'] },
+      { name: 'All Files', extensions: ['*'] },
+    ],
+  });
+  return result.filePaths[0] || null;
+});
+
+// Read KAI metadata
+ipcMain.handle('read-kai-metadata', async (event, filePath) => {
+  try {
+    const bridges = getBridges();
+    const metadata = await bridges.pythonBridge.readKaiMetadata(filePath);
+    return metadata;
+  } catch (error) {
+    console.error('KAI metadata read error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+// Regenerate lyrics (full Whisper re-transcription)
+ipcMain.handle('regenerate-lyrics', async (event, options) => {
+  try {
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.regenerateLyrics(options, (progress) => {
+      // Send progress to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('processing-progress', progress);
+      }
+    });
+    return result;
+  } catch (error) {
+    console.error('Regenerate lyrics error:', error);
+    return {
+      success: false,
+      error: error.error || error.message,
+      error_type: error.error_type || 'UnknownError',
+    };
+  }
+});
+
+// Fix lyrics (LLM correction only)
+ipcMain.handle('fix-lyrics', async (event, options) => {
+  try {
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.fixLyrics(options);
+    return result;
+  } catch (error) {
+    console.error('Fix lyrics error:', error);
+    return {
+      success: false,
+      error: error.error || error.message,
+      error_type: error.error_type || 'UnknownError',
     };
   }
 });

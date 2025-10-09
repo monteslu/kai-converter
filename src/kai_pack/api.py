@@ -5,14 +5,22 @@ It wraps the existing KaiProcessor with structured results, progress callbacks,
 and exception handling, making it easy to integrate with Electron or other GUIs.
 """
 
+import json
 import logging
 import traceback
+import sys
 from pathlib import Path
 from typing import Dict, Any, Optional, Callable, List
 
 from .processor import KaiProcessor
 
 
+# Configure logging to go to stderr (not stdout)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
+)
 logger = logging.getLogger(__name__)
 
 
@@ -383,4 +391,349 @@ class KaiAPI:
             logger.error(f"Failed to get model info: {e}")
             return {
                 "error": str(e)
+            }
+
+    def regenerate_lyrics(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        whisper_model: str = "large-v3-turbo",
+        language: str = "en",
+        reference_lyrics: Optional[str] = None,
+        llm_enabled: bool = False,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Regenerate lyrics in a KAI file using Whisper re-transcription.
+
+        Args:
+            input_file: Path to input .kai file
+            output_file: Path to output .kai file (default: overwrite input)
+            whisper_model: Whisper model size
+            language: Language code
+            reference_lyrics: Reference lyrics for LLM correction
+            llm_enabled: Enable LLM lyric correction
+            llm_provider: LLM provider (claude/openai/gemini/local)
+            llm_model: LLM model name
+            llm_api_key: API key for LLM provider
+            llm_base_url: Base URL for local LLM
+
+        Returns:
+            Dictionary with success status and result info
+        """
+        try:
+            import sys
+            import tempfile
+            import zipfile
+            import shutil
+            from pathlib import Path
+            import soundfile as sf
+            import numpy as np
+
+            # Import transcription utilities
+            from kai_pack.transcription import LyricsTranscriber
+            from utils.lyrics_utils import prepare_whisper_context
+
+            input_path = Path(input_file)
+            if not input_path.exists():
+                return {
+                    "success": False,
+                    "error": f"Input file not found: {input_file}",
+                    "error_type": "FileNotFoundError"
+                }
+
+            output_path = Path(output_file) if output_file else input_path
+
+            # Create temp directory for extraction
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+
+                # Extract KAI file
+                self._emit_progress("extract", 10, "Extracting KAI file...")
+                with zipfile.ZipFile(input_path, 'r') as z:
+                    z.extractall(temp_path)
+
+                # Load existing song.json
+                song_json_path = temp_path / "song.json"
+                if not song_json_path.exists():
+                    return {
+                        "success": False,
+                        "error": "Invalid KAI file: no song.json found",
+                        "error_type": "InvalidKAIFile"
+                    }
+
+                with open(song_json_path, 'r') as f:
+                    existing_data = json.load(f)
+
+                # Load vocals audio
+                vocals_path = temp_path / "vocals.mp3"
+                if not vocals_path.exists():
+                    return {
+                        "success": False,
+                        "error": "Invalid KAI file: no vocals.mp3 found",
+                        "error_type": "InvalidKAIFile"
+                    }
+
+                self._emit_progress("load_vocals", 20, "Loading vocals audio...")
+                audio, sr = sf.read(str(vocals_path))
+
+                # Convert to expected format
+                if audio.ndim == 1:
+                    vocals_audio = np.array([audio, audio])
+                else:
+                    vocals_audio = audio.T
+
+                # Prepare Whisper context from reference lyrics using proper function
+                whisper_context = None
+                lyrics_temp_file = None
+                if reference_lyrics:
+                    # Extract title and artist from existing KAI file metadata
+                    title = existing_data.get('title', '')
+                    artist = existing_data.get('artist', '')
+
+                    # Use prepare_whisper_context to get proper token-scored vocabulary hints
+                    whisper_context, lyrics_temp_file = prepare_whisper_context(
+                        title=title,
+                        artist=artist,
+                        reference_lyrics=reference_lyrics
+                    )
+
+                # Transcribe vocals
+                self._emit_progress("transcribe", 30, "Transcribing vocals with Whisper...")
+                logger.info(f"Starting Whisper transcription with model: {whisper_model}, language: {language}")
+                if whisper_context:
+                    logger.info(f"Using Whisper prompt with vocabulary hints")
+                    logger.info(f"Whisper prompt: {whisper_context}")
+
+                transcriber = LyricsTranscriber(
+                    sample_rate=sr,
+                    model_name=whisper_model,
+                    language=language,
+                    device=None  # Auto-detect
+                )
+
+                transcription_result = transcriber.transcribe_and_align(
+                    vocals_audio=vocals_audio,
+                    use_chunking=False,  # Use full audio for better coherence
+                    initial_prompt=whisper_context
+                )
+
+                # Extract lines from transcription result
+                new_lyrics = transcription_result.get('lines', [])
+
+                # Apply LLM correction if enabled
+                if llm_enabled and reference_lyrics:
+                    self._emit_progress("llm_correction", 80, "Applying LLM lyric correction...")
+                    from utils.fix_lyrics import fix_lyrics_with_llm
+                    import sys
+                    import io
+
+                    llm_config = {
+                        'provider': llm_provider,
+                        'model': llm_model,
+                        'api_key': llm_api_key,
+                        'base_url': llm_base_url
+                    }
+
+                    # Suppress stdout from fix_lyrics_with_llm to avoid polluting JSON output
+                    old_stdout = sys.stdout
+                    sys.stdout = io.StringIO()
+
+                    try:
+                        llm_result = fix_lyrics_with_llm(
+                            new_lyrics,
+                            reference_lyrics,
+                            llm_config=llm_config,
+                            song_data=existing_data
+                        )
+
+                        # fix_lyrics_with_llm returns a tuple: (corrected_lines, rejections, missing_lines, corrections_applied)
+                        if llm_result and len(llm_result) == 4 and llm_result[0] is not None:
+                            corrected_lines, rejections, missing_lines, corrections_applied = llm_result
+                            new_lyrics = corrected_lines
+                    finally:
+                        # Restore stdout
+                        sys.stdout = old_stdout
+
+                # Update song.json with new lyrics
+                existing_data['lyrics'] = new_lyrics
+
+                # Save updated song.json
+                self._emit_progress("save", 90, "Saving updated KAI file...")
+                with open(song_json_path, 'w') as f:
+                    json.dump(existing_data, f, indent=2)
+
+                # Repack KAI file
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                    for file_path in temp_path.iterdir():
+                        if file_path.is_file():
+                            z.write(file_path, file_path.name)
+
+                self._emit_progress("complete", 100, "Lyrics regeneration complete")
+
+                return {
+                    "success": True,
+                    "output_file": str(output_path),
+                    "lines_count": len(new_lyrics)
+                }
+
+        except Exception as e:
+            logger.error(f"Lyrics regeneration failed: {e}")
+            import traceback
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
+            }
+
+    def fix_lyrics(
+        self,
+        input_file: str,
+        output_file: Optional[str] = None,
+        reference_lyrics: Optional[str] = None,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fix lyrics in a KAI file using LLM correction (no Whisper re-transcription).
+
+        Args:
+            input_file: Path to input .kai file
+            output_file: Path to output .kai file (default: overwrite input)
+            reference_lyrics: Reference lyrics for correction
+            llm_provider: LLM provider (claude/openai/gemini/local)
+            llm_model: LLM model name
+            llm_api_key: API key for LLM provider
+            llm_base_url: Base URL for local LLM
+
+        Returns:
+            Dictionary with success status and correction info
+        """
+        try:
+            import tempfile
+            import zipfile
+            from pathlib import Path
+            from utils.fix_lyrics import fix_lyrics_with_llm
+
+            input_path = Path(input_file)
+            if not input_path.exists():
+                return {
+                    "success": False,
+                    "error": f"Input file not found: {input_file}",
+                    "error_type": "FileNotFoundError"
+                }
+
+            output_path = Path(output_file) if output_file else input_path
+
+            # Reference lyrics are required for LLM correction to work
+            if not reference_lyrics:
+                return {
+                    "success": False,
+                    "error": "Reference lyrics are required for fix_lyrics. Use regenerate_lyrics if you want to re-transcribe without correction.",
+                    "error_type": "MissingParameter"
+                }
+
+            # Create temp directory for extraction
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_path = Path(temp_dir)
+
+                # Extract KAI file
+                with zipfile.ZipFile(input_path, 'r') as z:
+                    z.extractall(temp_path)
+
+                # Load existing song.json
+                song_json_path = temp_path / "song.json"
+                if not song_json_path.exists():
+                    return {
+                        "success": False,
+                        "error": "Invalid KAI file: no song.json found",
+                        "error_type": "InvalidKAIFile"
+                    }
+
+                with open(song_json_path, 'r') as f:
+                    song_data = json.load(f)
+
+                existing_lyrics = song_data.get('lyrics', [])
+
+                # Apply LLM correction
+                llm_config = {
+                    'provider': llm_provider,
+                    'model': llm_model,
+                    'api_key': llm_api_key,
+                    'base_url': llm_base_url
+                }
+
+                # Suppress stdout from fix_lyrics_with_llm to avoid polluting JSON output
+                import sys
+                import io
+                old_stdout = sys.stdout
+                sys.stdout = io.StringIO()
+
+                try:
+                    llm_result = fix_lyrics_with_llm(
+                        existing_lyrics,
+                        reference_lyrics,
+                        llm_config=llm_config,
+                        song_data=song_data,
+                        kai_file_path=str(input_path)
+                    )
+                finally:
+                    # Restore stdout
+                    sys.stdout = old_stdout
+
+                # fix_lyrics_with_llm returns a tuple: (corrected_lines, rejections, missing_lines, corrections_applied)
+                if not llm_result or len(llm_result) != 4:
+                    return {
+                        "success": False,
+                        "error": "LLM correction returned invalid result",
+                        "error_type": "LLMError"
+                    }
+
+                corrected_lines, rejections, missing_lines, corrections_applied = llm_result
+
+                if corrected_lines is None:
+                    return {
+                        "success": False,
+                        "error": "LLM correction failed to return corrected lyrics",
+                        "error_type": "LLMError"
+                    }
+
+                # Update song.json with corrected lyrics
+                song_data['lyrics'] = corrected_lines
+
+                # Store corrections count for result
+                corrections_count = corrections_applied if isinstance(corrections_applied, int) else 0
+
+                # Save updated song.json
+                with open(song_json_path, 'w') as f:
+                    json.dump(song_data, f, indent=2)
+
+                # Repack KAI file
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as z:
+                    for file_path in temp_path.iterdir():
+                        if file_path.is_file():
+                            z.write(file_path, file_path.name)
+
+                return {
+                    "success": True,
+                    "output_file": str(output_path),
+                    "corrections_count": corrections_count,
+                    "rejections_count": len(rejections) if rejections else 0,
+                    "missing_lines_count": len(missing_lines) if missing_lines else 0
+                }
+
+        except Exception as e:
+            logger.error(f"Lyrics fix failed: {e}")
+            import traceback
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+                "traceback": traceback.format_exc()
             }

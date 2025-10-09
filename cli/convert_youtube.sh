@@ -5,6 +5,14 @@
 
 set -e
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS] YOUTUBE_URL [OUTPUT.kai]"
@@ -250,7 +258,7 @@ echo "✓ Audio extracted: $MP3_FILE"
 
 # Write ID3 tags to the MP3 file
 echo "Writing ID3 tags to MP3..."
-python3 -c "
+"$PYTHON_PATH" -c "
 import sys
 try:
     from mutagen.id3 import ID3, TIT2, TPE1, TDRC, COMM

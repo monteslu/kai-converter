@@ -5,6 +5,11 @@ import { pipeline } from 'stream/promises';
 import { join, dirname } from 'path';
 import { homedir, platform, arch } from 'os';
 import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
+import { app } from 'electron';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 /**
  * Download Manager - Handles downloading and installing components
@@ -23,16 +28,52 @@ import { spawn } from 'child_process';
 
 export class DownloadManager {
   constructor() {
-    this.pythonPath = this._getPythonPath();
+    try {
+      this.pythonPath = this._getPythonPath();
+    } catch (error) {
+      console.error('[DownloadManager] Failed to initialize:', error.message);
+      this.pythonPath = null;
+      this.initError = error.message;
+    }
     this.activeDownloads = new Map();
   }
 
   /**
    * Get the Python executable path
+   * - Development: use python-standalone (same as production)
+   * - Production: use bundled python-standalone
+   *
+   * This ensures consistency - if it works in dev, it works for users!
    */
   _getPythonPath() {
-    const isDev = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
-    return isDev ? 'python3' : 'python3';
+    const platform = process.platform;
+
+    // Helper to get standalone Python executable path
+    const getStandalonePath = (baseDir) => {
+      if (platform === 'win32') {
+        return join(baseDir, 'python.exe');
+      } else {
+        return join(baseDir, 'bin', 'python3');
+      }
+    };
+
+    if (app.isPackaged) {
+      // Production: use bundled standalone Python
+      const bundledPython = getStandalonePath(join(process.resourcesPath, 'python'));
+      console.log('[DownloadManager] Using bundled Python:', bundledPython);
+      return bundledPython;
+    } else {
+      // Development: use local standalone Python (same as production!)
+      const standalonePython = getStandalonePath(join(__dirname, '..', 'python-standalone'));
+      if (existsSync(standalonePython)) {
+        console.log('[DownloadManager] Using standalone Python:', standalonePython);
+        return standalonePython;
+      } else {
+        console.error('[DownloadManager] ❌ Standalone Python not found!');
+        console.error('[DownloadManager] Run: npm run setup:python');
+        throw new Error('Python not found. Please run: npm run setup:python');
+      }
+    }
   }
 
   /**
@@ -135,6 +176,13 @@ export class DownloadManager {
    * @returns {Promise<Object>}
    */
   async _pipInstall(packageSpec, progressCallback) {
+    if (!this.pythonPath) {
+      throw {
+        success: false,
+        error: this.initError || 'Python not initialized',
+      };
+    }
+
     return new Promise((resolve, reject) => {
       const args = ['-m', 'pip', 'install', packageSpec, '--no-cache-dir'];
 

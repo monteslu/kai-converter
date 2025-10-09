@@ -1,0 +1,2 @@
+# This directory contains platform-specific binaries
+# They are downloaded during setup with: npm run setup:binaries

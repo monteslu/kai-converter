@@ -1,19 +1,58 @@
 # KAI Converter
 
-A complete toolkit for creating KAI karaoke files with AI-powered source separation, transcription, and lyrics correction. Convert audio files, YouTube videos, and generate karaoke videos with synchronized lyrics.
+A complete toolkit for creating KAI karaoke files with AI-powered source separation, transcription, and lyrics correction.
 
 ## Features
 
-- **2-stem/4-stem separation** using Demucs v4 (default: vocals + music, optional: vocals/drums/bass/other)
-- **AI lyrics transcription** using OpenAI Whisper with word-level timing
-- **Multi-language support** including auto-detection for mixed-language songs
-- **Automatic lyrics correction** using OpenAI GPT models
-- **YouTube video downloading** and conversion
-- **Karaoke video generation** with progress bars and synchronized lyrics
-- **Musical analysis** with key detection (F0, notes, tempo, keys, chords, onsets, MFCC)
-- **KAI v1.0 format** compliant output
+- 🎵 **Audio stem separation** - Isolate vocals and music using Demucs v4
+- 🎤 **AI lyrics transcription** - OpenAI Whisper with word-level timing
+- 🌍 **Multi-language support** - Auto-detection for mixed-language songs
+- ✨ **Automatic lyrics correction** - Multiple LLM providers (OpenAI, Claude, Gemini, local)
+- 📺 **YouTube support** - Download and convert videos directly
+- 🎬 **Karaoke video generation** - Create MP4s with synchronized lyrics
+- 🎹 **Musical analysis** - Key detection, tempo, chords, and more
+- 📦 **KAI v1.0 format** - Complete karaoke file packages
 
-## Installation
+## Two Ways to Use KAI Converter
+
+### 🖥️ Desktop App (GUI) - For Everyone
+
+**Download the app, no technical setup required!**
+
+Available for macOS, Windows, and Linux. Coming soon...
+
+- ✅ No Python installation needed
+- ✅ No command-line required
+- ✅ Easy-to-use graphical interface
+- ✅ Everything included in one download
+
+### 💻 Command-Line Tools (CLI) - For Power Users
+
+For developers and advanced users who prefer terminal workflows.
+
+See installation instructions below.
+
+---
+
+## Desktop App Installation (GUI)
+
+**Coming soon!** Pre-built desktop apps with zero dependencies will be available for download.
+
+In the meantime, developers can build the app from source:
+
+```bash
+git clone <repo>
+cd kai-converter
+npm install
+npm run setup:all        # One-time setup (downloads Python, AI models, ffmpeg, yt-dlp)
+npm run dev:all          # Run the app in development mode
+```
+
+See [BUILDING.md](BUILDING.md) for detailed developer instructions.
+
+---
+
+## Command-Line Installation (CLI)
 
 ### Prerequisites
 

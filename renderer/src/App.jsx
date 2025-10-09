@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import ConvertScreen from './components/ConvertScreen';
 import BatchScreen from './components/BatchScreen';
+import FixScreen from './components/FixScreen';
+import LogsScreen from './components/LogsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import AboutScreen from './components/AboutScreen';
 import SetupWizard from './components/SetupWizard';
@@ -73,7 +75,9 @@ export default function App() {
   const tabs = [
     { id: 'convert', label: '🎵 Convert', component: ConvertScreen },
     { id: 'batch', label: '📦 Batch', component: BatchScreen },
-    { id: 'settings', label: '🔧 Settings', component: SettingsScreen },
+    { id: 'fix', label: '🔧 Fix', component: FixScreen },
+    { id: 'logs', label: '📋 Logs', component: LogsScreen },
+    { id: 'settings', label: '⚙️ Settings', component: SettingsScreen },
     { id: 'about', label: 'ℹ️ About', component: AboutScreen },
   ];
 

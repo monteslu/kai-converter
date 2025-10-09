@@ -5,6 +5,14 @@
 
 set -e
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS] FOLDER"
@@ -132,7 +140,7 @@ echo ""
 # Memory optimization setup
 echo "Setting up memory optimization..."
 # Only set CUDA-specific vars if CUDA is available
-if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+if "$PYTHON_PATH" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
     echo "  CUDA detected - enabling GPU memory optimizations"
     export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64
     export CUDA_LAUNCH_BLOCKING=0
@@ -235,7 +243,7 @@ for i in "${!TO_PROCESS[@]}"; do
     fi
 
     # Clear GPU memory before processing (if CUDA available)
-    python3 -c "import torch; import gc; gc.collect(); torch.cuda.empty_cache() if torch.cuda.is_available() else None" 2>/dev/null || true
+    "$PYTHON_PATH" -c "import torch; import gc; gc.collect(); torch.cuda.empty_cache() if torch.cuda.is_available() else None" 2>/dev/null || true
 
     # Execute kai_pack.sh
     start_time=$(date +%s)

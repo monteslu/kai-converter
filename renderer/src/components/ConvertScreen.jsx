@@ -1,7 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 
 export default function ConvertScreen() {
+  const [inputMode, setInputMode] = useState('file'); // 'file' or 'youtube'
   const [inputFile, setInputFile] = useState(null);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [youtubeTitle, setYoutubeTitle] = useState('');
+  const [youtubeArtist, setYoutubeArtist] = useState('');
   const [outputFile, setOutputFile] = useState(null);
   const [whisperModel, setWhisperModel] = useState('large-v3-turbo');
   const [language, setLanguage] = useState('auto');
@@ -87,6 +91,42 @@ export default function ConvertScreen() {
     }
   }
 
+  // Process YouTube URL - fetch lyrics based on title/artist
+  async function processYoutubeUrl() {
+    setResult(null);
+    setError(null);
+    setLyricsStatus(null);
+    setReferenceLyrics(null);
+    setManualLyrics('');
+    setShowLyricsInput(false);
+    setShowLyricsDisplay(false);
+
+    // Auto-generate output file path in user's home directory
+    if (youtubeTitle && youtubeArtist) {
+      const kaiFileName = `${youtubeArtist} - ${youtubeTitle}.kai`;
+
+      // Get user's home directory and create full path
+      if (window.electronAPI?.getHomeDirectory) {
+        const homeDir = await window.electronAPI.getHomeDirectory();
+        setOutputFile(`${homeDir}/${kaiFileName}`);
+      } else {
+        // Fallback if API not available
+        setOutputFile(kaiFileName);
+      }
+
+      // Fetch lyrics if we have title and artist
+      setLyricsStatus('loading');
+      const lyricsResult = await window.electronAPI.fetchLyrics(youtubeTitle, youtubeArtist);
+
+      if (lyricsResult.success) {
+        setLyricsStatus('found');
+        setReferenceLyrics(lyricsResult.lyrics);
+      } else {
+        setLyricsStatus('not-found');
+      }
+    }
+  }
+
   // Handle output folder selection
   async function handleSelectOutputFolder() {
     try {
@@ -131,9 +171,24 @@ export default function ConvertScreen() {
 
   // Process audio
   async function handleConvert() {
-    if (!inputFile) {
+    if (inputMode === 'file' && !inputFile) {
       setError('Please select an input file');
       return;
+    }
+
+    if (inputMode === 'youtube') {
+      if (!youtubeUrl) {
+        setError('Please enter a YouTube URL');
+        return;
+      }
+      if (!youtubeTitle) {
+        setError('Please enter the song title');
+        return;
+      }
+      if (!youtubeArtist) {
+        setError('Please enter the artist name');
+        return;
+      }
     }
 
     setIsProcessing(true);
@@ -152,7 +207,10 @@ export default function ConvertScreen() {
       const llmSettings = settings.llm || {};
 
       const options = {
-        inputFile,
+        inputFile: inputMode === 'file' ? inputFile : null,
+        youtubeUrl: inputMode === 'youtube' ? youtubeUrl : null,
+        title: inputMode === 'youtube' ? youtubeTitle : null,
+        artist: inputMode === 'youtube' ? youtubeArtist : null,
         outputFile,
         whisperModel,
         language: language === 'auto' ? 'en' : language,
@@ -214,38 +272,188 @@ export default function ConvertScreen() {
     <div className="p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">🎵 Convert Audio to KAI</h1>
 
-      {/* Drop Zone */}
+      {/* Input Mode Toggle */}
       <div className="card p-6 mb-6">
-        <div
-          className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
-            isDragging
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-          }`}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={handleSelectFile}
-        >
-          <p className="text-4xl mb-4">🎵</p>
-          {inputFile ? (
-            <>
-              <p className="text-lg mb-2 text-gray-700 dark:text-gray-300 font-medium">
-                {inputFile.split('/').pop().split('\\').pop()}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Click to change file</p>
-            </>
-          ) : (
-            <>
-              <p className="text-lg mb-2 text-gray-700 dark:text-gray-300">
-                Drop audio file here or click to browse
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Supported: MP3, WAV, FLAC, M4A, OGG
-              </p>
-            </>
-          )}
+        <div className="flex gap-2 mb-4">
+          <button
+            onClick={() => setInputMode('file')}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+              inputMode === 'file'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+            }`}
+          >
+            📁 Audio File
+          </button>
+          <button
+            onClick={() => setInputMode('youtube')}
+            className={`flex-1 py-2 px-4 rounded-lg font-medium transition-colors ${
+              inputMode === 'youtube'
+                ? 'bg-blue-600 text-white'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600'
+            }`}
+          >
+            📺 YouTube URL
+          </button>
         </div>
+
+        {/* File Upload Mode */}
+        {inputMode === 'file' && (
+          <div
+            className={`border-2 border-dashed rounded-lg p-12 text-center cursor-pointer transition-colors ${
+              isDragging
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={handleSelectFile}
+          >
+            <p className="text-4xl mb-4">🎵</p>
+            {inputFile ? (
+              <>
+                <p className="text-lg mb-2 text-gray-700 dark:text-gray-300 font-medium">
+                  {inputFile.split('/').pop().split('\\').pop()}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Click to change file</p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg mb-2 text-gray-700 dark:text-gray-300">
+                  Drop audio file here or click to browse
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Supported: MP3, WAV, FLAC, M4A, OGG
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* YouTube URL Mode */}
+        {inputMode === 'youtube' && (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">YouTube URL *</label>
+              <input
+                type="text"
+                value={youtubeUrl}
+                onChange={(e) => setYoutubeUrl(e.target.value)}
+                className="input w-full"
+                placeholder="https://youtube.com/watch?v=... or https://youtu.be/..."
+                disabled={isProcessing}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Artist Name *</label>
+                <input
+                  type="text"
+                  value={youtubeArtist}
+                  onChange={(e) => setYoutubeArtist(e.target.value)}
+                  className="input w-full"
+                  placeholder="e.g., Queen"
+                  disabled={isProcessing}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">Song Title *</label>
+                <input
+                  type="text"
+                  value={youtubeTitle}
+                  onChange={(e) => setYoutubeTitle(e.target.value)}
+                  className="input w-full"
+                  placeholder="e.g., Bohemian Rhapsody"
+                  disabled={isProcessing}
+                />
+              </div>
+            </div>
+
+            {/* Search for Lyrics Button */}
+            {!lyricsStatus && (
+              <button
+                onClick={processYoutubeUrl}
+                disabled={!youtubeTitle || !youtubeArtist || isProcessing}
+                className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
+                  !youtubeTitle || !youtubeArtist || isProcessing
+                    ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                    : 'btn-primary'
+                }`}
+              >
+                🔍 Search for Lyrics
+              </button>
+            )}
+
+            {/* Lyrics Status for YouTube Mode */}
+            {lyricsStatus && (
+              <div className="border-t pt-4">
+                {lyricsStatus === 'loading' && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    🔍 Looking up reference lyrics on LRCLIB...
+                  </p>
+                )}
+
+                {lyricsStatus === 'found' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                        ✓ Found reference lyrics - will improve transcription accuracy
+                      </p>
+                      <button
+                        onClick={() => setShowLyricsDisplay(!showLyricsDisplay)}
+                        className="text-sm px-3 py-1 text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        {showLyricsDisplay ? 'Hide' : 'Show'}
+                      </button>
+                    </div>
+                    {showLyricsDisplay && referenceLyrics && (
+                      <div className="border border-gray-300 dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-800/50">
+                        <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                          {referenceLyrics}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {lyricsStatus === 'not-found' && (
+                  <div>
+                    <p className="text-sm text-yellow-600 dark:text-yellow-400 font-medium mb-2">
+                      ⚠ No reference lyrics found on LRCLIB
+                    </p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      You can paste lyrics manually below to improve transcription accuracy (optional):
+                    </p>
+                    <textarea
+                      className="input w-full h-32 font-mono text-sm"
+                      placeholder="Paste plain text lyrics here...&#10;&#10;Example:&#10;Hello darkness my old friend&#10;I've come to talk with you again..."
+                      value={manualLyrics}
+                      onChange={(e) => {
+                        setManualLyrics(e.target.value);
+                        if (e.target.value.trim()) {
+                          setReferenceLyrics(e.target.value);
+                        } else {
+                          setReferenceLyrics(null);
+                        }
+                      }}
+                    />
+                    {manualLyrics.trim() && (
+                      <p className="text-sm text-green-600 dark:text-green-400 mt-2">
+                        ✓ Lyrics added - will improve accuracy
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              * Required fields. Title and artist are used for metadata and lyrics lookup.
+            </p>
+          </div>
+        )}
+
         <input
           ref={fileInputRef}
           type="file"
@@ -255,7 +463,7 @@ export default function ConvertScreen() {
       </div>
 
       {/* Lyrics Status */}
-      {inputFile && lyricsStatus && (
+      {((inputMode === 'file' && inputFile) || (inputMode === 'youtube' && youtubeTitle && youtubeArtist)) && lyricsStatus && (
         <div className="card p-4 mb-6">
           {lyricsStatus === 'loading' && (
             <p className="text-sm text-gray-600 dark:text-gray-400">
@@ -347,7 +555,7 @@ export default function ConvertScreen() {
       )}
 
       {/* Output Path */}
-      {inputFile && (
+      {((inputMode === 'file' && inputFile) || (inputMode === 'youtube' && youtubeUrl && youtubeTitle && youtubeArtist)) && (
         <div className="card p-6 mb-6">
           <h2 className="text-lg font-semibold mb-4">Output File</h2>
           <div className="flex gap-2">
@@ -522,9 +730,9 @@ export default function ConvertScreen() {
       {/* Action Button */}
       <button
         onClick={handleConvert}
-        disabled={!inputFile || isProcessing}
+        disabled={(inputMode === 'file' && !inputFile) || (inputMode === 'youtube' && (!youtubeUrl || !youtubeTitle || !youtubeArtist)) || isProcessing}
         className={`w-full text-lg py-3 rounded-lg font-medium transition-colors ${
-          !inputFile || isProcessing
+          ((inputMode === 'file' && !inputFile) || (inputMode === 'youtube' && (!youtubeUrl || !youtubeTitle || !youtubeArtist)) || isProcessing)
             ? 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
             : 'btn-primary'
         }`}
@@ -532,13 +740,21 @@ export default function ConvertScreen() {
         {isProcessing ? 'Processing...' : 'Convert to KAI'}
       </button>
 
-      {inputFile && !isProcessing && (
+      {((inputMode === 'file' && inputFile) || (inputMode === 'youtube' && youtubeUrl)) && !isProcessing && (
         <button
           onClick={() => {
             setInputFile(null);
+            setYoutubeUrl('');
+            setYoutubeTitle('');
+            setYoutubeArtist('');
             setOutputFile(null);
             setResult(null);
             setError(null);
+            setLyricsStatus(null);
+            setReferenceLyrics(null);
+            setManualLyrics('');
+            setShowLyricsInput(false);
+            setShowLyricsDisplay(false);
           }}
           className="w-full mt-2 text-sm py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
         >

@@ -21,6 +21,8 @@ ENV/
 dist/
 build/
 .pytest_cache/
+python-standalone/
+python-dist/
 
 # IDE
 .vscode/
@@ -43,3 +45,7 @@ package-lock.json
 renderer/dist/
 dist-electron/
 *.local
+
+# Downloaded binaries (platform-specific, downloaded during setup)
+resources/bin/ffmpeg*
+resources/bin/yt-dlp*

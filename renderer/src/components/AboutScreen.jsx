@@ -91,7 +91,7 @@ export default function AboutScreen() {
         )}
       </div>
 
-      <div className="card p-6">
+      <div className="card p-6 mb-6">
         <h2 className="text-lg font-semibold mb-4">Quick Tips</h2>
         <ul className="space-y-2 text-sm text-gray-700 dark:text-gray-300">
           <li>• Drag & drop audio files to the Convert tab</li>
@@ -101,8 +101,27 @@ export default function AboutScreen() {
         </ul>
       </div>
 
+      <div className="card p-6 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+        <h2 className="text-lg font-semibold mb-2 text-blue-900 dark:text-blue-100">Legal Notice</h2>
+        <p className="text-sm text-blue-800 dark:text-blue-200 mb-3">
+          For personal use only. Please use only with music you own or have permission to use.
+        </p>
+        <a
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            if (window.electronAPI?.openExternal) {
+              window.electronAPI.openExternal('https://github.com/your-repo/kai-converter/blob/main/LEGAL.md');
+            }
+          }}
+          className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+        >
+          📄 Read Full Legal Notice & Terms of Use
+        </a>
+      </div>
+
       <p className="text-sm text-gray-500 dark:text-gray-400 mt-6 text-center">
-        Phase 3 - System check now working! ✓
+        Open source software. See LEGAL.md for terms and bundled component licenses.
       </p>
     </div>
   );

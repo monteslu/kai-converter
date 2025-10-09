@@ -65,6 +65,7 @@ export class SystemChecker {
       python: {
         available: false,
         version: null,
+        path: this.pythonBridge.pythonPath || null,
       },
       pytorch: {
         available: false,
