@@ -604,6 +604,168 @@ except Exception as e:
   }
 
   /**
+   * Download ffmpeg binary
+   *
+   * @param {Function} progressCallback - Called with progress updates
+   * @returns {Promise<Object>}
+   */
+  async downloadFfmpeg(progressCallback) {
+    try {
+      if (progressCallback) {
+        progressCallback({ stage: 'preparing', percent: 0, message: 'Preparing to download ffmpeg...' });
+      }
+
+      const cacheDir = this._getCacheDir();
+      const binDir = join(cacheDir, 'bin');
+
+      if (!existsSync(binDir)) {
+        mkdirSync(binDir, { recursive: true });
+      }
+
+      const plat = platform();
+      let url, filename;
+
+      if (plat === 'darwin') {
+        url = 'https://evermeet.cx/ffmpeg/getrelease/ffmpeg/zip';
+        filename = 'ffmpeg';
+      } else if (plat === 'win32') {
+        url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
+        filename = 'ffmpeg.exe';
+      } else {
+        url = 'https://johnvansickle.com/ffmpeg/builds/ffmpeg-release-amd64-static.tar.xz';
+        filename = 'ffmpeg';
+      }
+
+      const destPath = join(binDir, filename);
+
+      // Check if already exists
+      if (existsSync(destPath)) {
+        return {
+          success: true,
+          component: 'ffmpeg',
+          message: 'ffmpeg already downloaded',
+          path: destPath,
+        };
+      }
+
+      await this._downloadFile(url, destPath, (downloaded, total) => {
+        if (progressCallback && total > 0) {
+          const percent = (downloaded / total) * 100;
+          progressCallback({
+            stage: 'downloading',
+            percent: percent,
+            message: `Downloading ffmpeg: ${(downloaded / 1024 / 1024).toFixed(1)}MB / ${(total / 1024 / 1024).toFixed(1)}MB`,
+          });
+        }
+      });
+
+      // Make executable on Unix
+      if (plat !== 'win32') {
+        const { chmodSync } = await import('fs');
+        chmodSync(destPath, 0o755);
+      }
+
+      if (progressCallback) {
+        progressCallback({ stage: 'complete', percent: 100, message: 'ffmpeg downloaded successfully' });
+      }
+
+      return {
+        success: true,
+        component: 'ffmpeg',
+        message: 'ffmpeg installed successfully',
+        path: destPath,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        component: 'ffmpeg',
+        error: error.message,
+      };
+    }
+  }
+
+  /**
+   * Download yt-dlp binary
+   *
+   * @param {Function} progressCallback - Called with progress updates
+   * @returns {Promise<Object>}
+   */
+  async downloadYtDlp(progressCallback) {
+    try {
+      if (progressCallback) {
+        progressCallback({ stage: 'preparing', percent: 0, message: 'Preparing to download yt-dlp...' });
+      }
+
+      const cacheDir = this._getCacheDir();
+      const binDir = join(cacheDir, 'bin');
+
+      if (!existsSync(binDir)) {
+        mkdirSync(binDir, { recursive: true });
+      }
+
+      const plat = platform();
+      let url, filename;
+
+      if (plat === 'darwin') {
+        url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos';
+        filename = 'yt-dlp';
+      } else if (plat === 'win32') {
+        url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
+        filename = 'yt-dlp.exe';
+      } else {
+        url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+        filename = 'yt-dlp';
+      }
+
+      const destPath = join(binDir, filename);
+
+      // Check if already exists
+      if (existsSync(destPath)) {
+        return {
+          success: true,
+          component: 'yt-dlp',
+          message: 'yt-dlp already downloaded',
+          path: destPath,
+        };
+      }
+
+      await this._downloadFile(url, destPath, (downloaded, total) => {
+        if (progressCallback && total > 0) {
+          const percent = (downloaded / total) * 100;
+          progressCallback({
+            stage: 'downloading',
+            percent: percent,
+            message: `Downloading yt-dlp: ${(downloaded / 1024 / 1024).toFixed(1)}MB / ${(total / 1024 / 1024).toFixed(1)}MB`,
+          });
+        }
+      });
+
+      // Make executable on Unix
+      if (plat !== 'win32') {
+        const { chmodSync } = await import('fs');
+        chmodSync(destPath, 0o755);
+      }
+
+      if (progressCallback) {
+        progressCallback({ stage: 'complete', percent: 100, message: 'yt-dlp downloaded successfully' });
+      }
+
+      return {
+        success: true,
+        component: 'yt-dlp',
+        message: 'yt-dlp installed successfully',
+        path: destPath,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        component: 'yt-dlp',
+        error: error.message,
+      };
+    }
+  }
+
+  /**
    * Cancel an active download
    *
    * @param {string} downloadId - Download ID to cancel

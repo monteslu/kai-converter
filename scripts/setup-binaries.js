@@ -59,10 +59,9 @@ const BINARIES = {
   linux: {
     ffmpeg: {
       urls: [
-        'https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz',
-        'https://github.com/eugeneware/ffmpeg-static/releases/latest/download/linux-x64',
+        'https://github.com/ffbinaries/ffbinaries-prebuilt/releases/download/v4.4.1/ffmpeg-4.4.1-linux-64.zip',
       ],
-      filename: 'ffmpeg.tar.xz',
+      filename: 'ffmpeg.zip',
       extract: 'ffmpeg',
     },
     'yt-dlp': {

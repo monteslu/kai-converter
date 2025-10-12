@@ -56,6 +56,28 @@ export class SystemChecker {
   }
 
   /**
+   * Check if ffmpeg is available
+   */
+  _checkFfmpeg() {
+    const cacheDir = this._getCacheDir();
+    const plat = platform();
+    const filename = plat === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+    const ffmpegPath = join(cacheDir, 'bin', filename);
+    return existsSync(ffmpegPath);
+  }
+
+  /**
+   * Check if yt-dlp is available
+   */
+  _checkYtDlp() {
+    const cacheDir = this._getCacheDir();
+    const plat = platform();
+    const filename = plat === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+    const ytDlpPath = join(cacheDir, 'bin', filename);
+    return existsSync(ytDlpPath);
+  }
+
+  /**
    * Perform complete system check
    *
    * @returns {Promise<Object>} System status
@@ -82,6 +104,12 @@ export class SystemChecker {
       whisper: {
         available: false,
         models: [],
+      },
+      ffmpeg: {
+        available: false,
+      },
+      ytdlp: {
+        available: false,
       },
       disk: {
         cacheDir: this._getCacheDir(),
@@ -119,6 +147,10 @@ export class SystemChecker {
         const models = ['tiny', 'base', 'small', 'medium', 'large', 'large-v2', 'large-v3', 'large-v3-turbo'];
         result.whisper.models = models.filter((m) => this._checkWhisperModel(m));
       }
+
+      // Check for ffmpeg and yt-dlp
+      result.ffmpeg.available = this._checkFfmpeg();
+      result.ytdlp.available = this._checkYtDlp();
     } catch (error) {
       console.error('System check error:', error);
       result.error = error.message;

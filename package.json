@@ -96,13 +96,6 @@
         "filter": [
           "**/*"
         ]
-      },
-      {
-        "from": "resources/bin",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
       }
     ],
     "win": {
