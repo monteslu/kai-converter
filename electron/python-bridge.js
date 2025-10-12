@@ -772,6 +772,163 @@ except Exception as e:
   }
 
   /**
+   * Update KAI file (save edited metadata and lyrics)
+   *
+   * @param {Object} updates - Update data
+   * @param {string} updates.inputFile - Path to input .kai file
+   * @param {string} updates.outputFile - Path to output .kai file
+   * @param {Object} updates.metadata - Updated metadata
+   * @param {Array} updates.lyrics - Updated lyrics array
+   * @returns {Promise<Object>} Update result
+   */
+  async updateKaiFile(updates) {
+    return new Promise((resolve, reject) => {
+      const argsJson = JSON.stringify({
+        inputFile: updates.inputFile,
+        outputFile: updates.outputFile || updates.inputFile,
+        metadata: updates.metadata || {},
+        lyrics: updates.lyrics || []
+      });
+
+      const pythonSrcPath = this._getPythonSrcPath().replace(/\\/g, '\\\\');
+
+      const args = [
+        '-c',
+        `
+import sys
+import json
+import zipfile
+import tempfile
+import shutil
+from pathlib import Path
+sys.path.insert(0, '${pythonSrcPath}')
+
+try:
+    args = json.loads(sys.argv[1])
+    input_file = args['inputFile']
+    output_file = args['outputFile']
+    new_metadata = args['metadata']
+    new_lyrics = args['lyrics']
+
+    # Read existing KAI file
+    with zipfile.ZipFile(input_file, 'r') as kai_zip:
+        # Read song.json
+        if 'song.json' not in kai_zip.namelist():
+            raise Exception('song.json not found in KAI file')
+
+        song_json_str = kai_zip.read('song.json').decode('utf-8')
+        song_data = json.loads(song_json_str)
+
+        # Update metadata
+        if 'song' not in song_data:
+            song_data['song'] = {}
+
+        song_data['song']['title'] = new_metadata.get('title', song_data['song'].get('title', ''))
+        song_data['song']['artist'] = new_metadata.get('artist', song_data['song'].get('artist', ''))
+        song_data['song']['album'] = new_metadata.get('album', song_data['song'].get('album', ''))
+        song_data['song']['year'] = new_metadata.get('year', song_data['song'].get('year', ''))
+        song_data['song']['genre'] = new_metadata.get('genre', song_data['song'].get('genre', ''))
+        song_data['song']['key'] = new_metadata.get('key', song_data['song'].get('key', ''))
+
+        # Update lyrics
+        if new_lyrics:
+            song_data['lines'] = new_lyrics
+
+        # Create temp file for the updated KAI
+        temp_dir = tempfile.mkdtemp()
+        temp_kai = Path(temp_dir) / 'updated.kai'
+
+        try:
+            # Copy all files except song.json to new archive
+            with zipfile.ZipFile(temp_kai, 'w', zipfile.ZIP_DEFLATED) as new_zip:
+                # Copy all existing files except song.json
+                for item in kai_zip.namelist():
+                    if item != 'song.json':
+                        new_zip.writestr(item, kai_zip.read(item))
+
+                # Write updated song.json
+                new_zip.writestr('song.json', json.dumps(song_data, indent=2, ensure_ascii=False))
+
+            # Replace original file with updated version
+            shutil.move(str(temp_kai), output_file)
+
+            result = {
+                'success': True,
+                'message': 'KAI file updated successfully',
+                'output_file': output_file
+            }
+            print(json.dumps(result))
+
+        finally:
+            # Clean up temp directory
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+
+except Exception as e:
+    result = {
+        'success': False,
+        'error': str(e)
+    }
+    print(json.dumps(result), file=sys.stderr)
+    sys.exit(1)
+`,
+        argsJson
+      ];
+
+      const python = spawn(this.pythonPath, args, {
+        cwd: join(__dirname, '..'),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: this._getEnvWithBinPath(),
+      });
+
+      let output = '';
+      let error = '';
+
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      python.stderr.on('data', (data) => {
+        const text = data.toString();
+        error += text;
+
+        // Send stderr as logs
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let level = 'info';
+          const lowerLine = line.toLowerCase();
+          if (lowerLine.includes('error') || lowerLine.includes('failed')) {
+            level = 'error';
+          } else if (lowerLine.includes('warning') || lowerLine.includes('warn')) {
+            level = 'warning';
+          }
+          this._sendLog(level, line.trim());
+        }
+      });
+
+      python.on('close', (code) => {
+        if (code === 0) {
+          try {
+            resolve(JSON.parse(output.trim()));
+          } catch (e) {
+            reject(new Error(`Failed to parse update result: ${e.message}`));
+          }
+        } else {
+          try {
+            const errorResult = JSON.parse(error.trim());
+            reject(errorResult);
+          } catch {
+            reject(new Error(`Failed to update KAI file: ${error || output}`));
+          }
+        }
+      });
+    });
+  }
+
+  /**
    * Regenerate lyrics using Whisper (full re-transcription)
    *
    * @param {Object} options - Processing options

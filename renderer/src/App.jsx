@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import ConvertScreen from './components/ConvertScreen';
 import BatchScreen from './components/BatchScreen';
 import FixScreen from './components/FixScreen';
+import EditScreen from './components/EditScreen';
 import LogsScreen from './components/LogsScreen';
 import SettingsScreen from './components/SettingsScreen';
 import AboutScreen from './components/AboutScreen';
@@ -76,6 +77,7 @@ export default function App() {
     { id: 'convert', label: '🎵 Convert', component: ConvertScreen },
     { id: 'batch', label: '📦 Batch', component: BatchScreen },
     { id: 'fix', label: '🔧 Fix', component: FixScreen },
+    { id: 'edit', label: '✏️ Edit', component: EditScreen },
     { id: 'logs', label: '📋 Logs', component: LogsScreen },
     { id: 'settings', label: '⚙️ Settings', component: SettingsScreen },
     { id: 'about', label: 'ℹ️ About', component: AboutScreen },

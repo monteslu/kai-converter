@@ -446,6 +446,21 @@ ipcMain.handle('read-kai-metadata', async (event, filePath) => {
   }
 });
 
+// Update KAI file (save edits)
+ipcMain.handle('update-kai-file', async (event, updates) => {
+  try {
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.updateKaiFile(updates);
+    return result;
+  } catch (error) {
+    console.error('KAI file update error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
 // Regenerate lyrics (full Whisper re-transcription)
 ipcMain.handle('regenerate-lyrics', async (event, options) => {
   try {
