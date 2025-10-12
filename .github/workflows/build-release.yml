@@ -199,7 +199,7 @@ jobs:
             macos-builds/*
             windows-builds/*
             linux-builds/*
-          draft: true
+          draft: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
