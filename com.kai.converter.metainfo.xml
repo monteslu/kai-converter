@@ -47,6 +47,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.6" date="2025-10-12">
+      <description>
+        <p>Build improvements</p>
+        <ul>
+          <li>Disabled Flatpak builds (AppImage works reliably)</li>
+          <li>Improved build stability on CI/CD</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.5" date="2025-10-12">
       <description>
         <p>Flatpak build fixes</p>
