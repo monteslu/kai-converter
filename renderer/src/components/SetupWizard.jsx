@@ -8,6 +8,7 @@ export default function SetupWizard({ onComplete }) {
   const [selectedPyTorchVariant, setSelectedPyTorchVariant] = useState('cpu');
   const [downloads, setDownloads] = useState([]);
   const [downloadProgress, setDownloadProgress] = useState({});
+  const [downloadResults, setDownloadResults] = useState({});
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadComplete, setDownloadComplete] = useState(false);
 
@@ -73,6 +74,7 @@ export default function SetupWizard({ onComplete }) {
         component: 'pytorch',
         name: `PyTorch (${selectedPyTorchVariant.toUpperCase()})`,
         variant: selectedPyTorchVariant,
+        required: true,
       });
     }
 
@@ -80,6 +82,7 @@ export default function SetupWizard({ onComplete }) {
       required.push({
         component: 'demucs',
         name: 'Demucs',
+        required: true,
       });
     }
 
@@ -87,6 +90,7 @@ export default function SetupWizard({ onComplete }) {
       required.push({
         component: 'whisper',
         name: 'Whisper Library',
+        required: true,
       });
     }
 
@@ -96,6 +100,7 @@ export default function SetupWizard({ onComplete }) {
         component: 'whisper-model',
         name: `Whisper ${selectedWhisperModel} model`,
         model: selectedWhisperModel,
+        required: true,
       });
     }
 
@@ -104,7 +109,26 @@ export default function SetupWizard({ onComplete }) {
       component: 'demucs-model',
       name: 'Demucs htdemucs_ft model',
       model: 'htdemucs_ft',
+      required: true,
     });
+
+    // Check for ffmpeg - REQUIRED (essential for all processing)
+    if (!systemInfo?.ffmpeg?.available) {
+      required.push({
+        component: 'ffmpeg',
+        name: 'FFmpeg',
+        required: true,
+      });
+    }
+
+    // Check for yt-dlp - OPTIONAL (only needed for YouTube tab)
+    if (!systemInfo?.ytdlp?.available) {
+      required.push({
+        component: 'yt-dlp',
+        name: 'yt-dlp (YouTube support)',
+        required: false,
+      });
+    }
 
     return required;
   }
@@ -115,6 +139,7 @@ export default function SetupWizard({ onComplete }) {
     setDownloads(required);
     setIsDownloading(true);
     setDownloadComplete(false);
+    setDownloadResults({});
 
     // Set up progress listener
     const unsubscribe = window.electronAPI?.onDownloadProgress((progress) => {
@@ -128,6 +153,9 @@ export default function SetupWizard({ onComplete }) {
       }));
     });
 
+    const results = {};
+    let hasRequiredFailures = false;
+
     try {
       // Download each component sequentially
       for (const download of required) {
@@ -139,13 +167,31 @@ export default function SetupWizard({ onComplete }) {
 
         const result = await window.electronAPI.downloadComponent(options);
 
+        // Track result
+        results[download.component] = {
+          success: result.success,
+          error: result.error,
+          required: download.required,
+        };
+
         if (!result.success) {
           console.error(`Failed to download ${download.name}:`, result.error);
-          // Continue with other downloads
+
+          // Check if this was a required component
+          if (download.required) {
+            hasRequiredFailures = true;
+          }
+          // Continue with other downloads even on failure
         }
       }
 
-      setDownloadComplete(true);
+      setDownloadResults(results);
+
+      // Only mark as complete if no required components failed
+      if (!hasRequiredFailures) {
+        setDownloadComplete(true);
+      }
+
       setIsDownloading(false);
     } catch (error) {
       console.error('Download error:', error);
@@ -322,7 +368,10 @@ export default function SetupWizard({ onComplete }) {
                   <p className="text-sm font-medium mb-2">Components to download:</p>
                   <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                     {getRequiredDownloads().map((d, i) => (
-                      <li key={i}>• {d.name}</li>
+                      <li key={i}>
+                        • {d.name}
+                        {!d.required && <span className="text-xs italic"> (optional)</span>}
+                      </li>
                     ))}
                   </ul>
                 </div>
@@ -490,42 +539,73 @@ export default function SetupWizard({ onComplete }) {
           {step === 4 && (
             <div>
               <h2 className="text-xl font-semibold mb-4">
-                {downloadComplete ? 'Downloads Complete!' : 'Downloading Components...'}
+                {downloadComplete ? 'Downloads Complete!' : !isDownloading ? 'Ready to Download' : 'Downloading Components...'}
               </h2>
               <div className="space-y-4">
                 {downloads.map((download, index) => {
                   const progress = downloadProgress[download.component] || { percent: 0, message: '', stage: 'preparing' };
-                  const isComplete = progress.stage === 'complete' || progress.percent === 100;
+                  const result = downloadResults[download.component];
+                  const isComplete = progress.stage === 'complete' || progress.percent === 100 || result?.success === true;
+                  const hasFailed = result && !result.success;
 
                   return (
                     <div key={index}>
                       <div className="flex justify-between text-sm mb-1">
-                        <span>{download.name}</span>
-                        <span className={isComplete ? 'text-green-600' : ''}>
-                          {isComplete ? '✓ Complete' : `${Math.round(progress.percent)}%`}
+                        <span>
+                          {download.name}
+                          {!download.required && <span className="text-xs italic text-gray-500"> (optional)</span>}
+                        </span>
+                        <span className={
+                          hasFailed
+                            ? download.required ? 'text-red-600' : 'text-yellow-600'
+                            : isComplete ? 'text-green-600' : ''
+                        }>
+                          {hasFailed
+                            ? download.required ? '✗ Failed (required)' : '⚠ Skipped (optional)'
+                            : isComplete ? '✓ Complete' : `${Math.round(progress.percent)}%`
+                          }
                         </span>
                       </div>
                       <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div
                           className={`h-2 rounded-full transition-all ${
-                            isComplete ? 'bg-green-600' : 'bg-blue-600'
+                            hasFailed
+                              ? download.required ? 'bg-red-600' : 'bg-yellow-600'
+                              : isComplete ? 'bg-green-600' : 'bg-blue-600'
                           }`}
-                          style={{ width: `${progress.percent}%` }}
+                          style={{ width: hasFailed || isComplete ? '100%' : `${progress.percent}%` }}
                         />
                       </div>
-                      {progress.message && (
+                      {progress.message && !hasFailed && (
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
                           {progress.message}
+                        </p>
+                      )}
+                      {hasFailed && result.error && (
+                        <p className="text-xs text-red-500 dark:text-red-400 mt-1 truncate">
+                          Error: {result.error}
                         </p>
                       )}
                     </div>
                   );
                 })}
               </div>
-              {!isDownloading && !downloadComplete && (
+              {!isDownloading && !downloadComplete && Object.keys(downloadResults).length === 0 && (
                 <p className="text-sm text-gray-600 dark:text-gray-400 mt-4">
                   Ready to download. Click "Start Download" to begin.
                 </p>
+              )}
+              {!isDownloading && Object.keys(downloadResults).length > 0 && (
+                <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                    {Object.values(downloadResults).some(r => r.required && !r.success)
+                      ? '⚠ Some required components failed to download. Please retry or check your internet connection.'
+                      : Object.values(downloadResults).some(r => !r.success)
+                        ? 'ℹ Some optional features are unavailable. You can continue without them.'
+                        : null
+                    }
+                  </p>
+                </div>
               )}
             </div>
           )}
@@ -536,15 +616,39 @@ export default function SetupWizard({ onComplete }) {
               <div className="text-6xl mb-4">✓</div>
               <h2 className="text-2xl font-semibold mb-4">Setup Complete!</h2>
               <div className="space-y-2 text-left max-w-md mx-auto">
-                {downloads.map((download, index) => (
-                  <div key={index} className="flex items-center">
-                    <span className="text-green-600 mr-2">✓</span>
-                    <span>{download.name}</span>
-                  </div>
-                ))}
+                {downloads.map((download, index) => {
+                  const result = downloadResults[download.component];
+                  const success = result?.success !== false;
+
+                  return (
+                    <div key={index} className="flex items-center">
+                      <span className={`mr-2 ${success ? 'text-green-600' : 'text-yellow-600'}`}>
+                        {success ? '✓' : '⚠'}
+                      </span>
+                      <span className={success ? '' : 'text-gray-500'}>
+                        {download.name}
+                        {!success && ' (unavailable)'}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
+
+              {/* Show warning if yt-dlp failed */}
+              {downloadResults['yt-dlp'] && !downloadResults['yt-dlp'].success && (
+                <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg max-w-md mx-auto">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200 text-left">
+                    <strong>Note:</strong> YouTube support (yt-dlp) is unavailable. The YouTube tab will be disabled.
+                    You can still convert local audio files.
+                  </p>
+                </div>
+              )}
+
               <p className="text-gray-600 dark:text-gray-400 mt-6">
-                You can now convert audio files to KAI format!
+                {Object.values(downloadResults).every(r => r.success !== false)
+                  ? 'You can now convert audio files to KAI format!'
+                  : 'Core features are ready! You can convert audio files to KAI format.'
+                }
               </p>
             </div>
           )}
@@ -595,10 +699,22 @@ export default function SetupWizard({ onComplete }) {
               Start Download
             </button>
           )}
-          {step === 4 && !isDownloading && !downloadComplete && (
-            <button onClick={startDownloads} className="btn-primary flex-1">
-              Retry
-            </button>
+          {step === 4 && !isDownloading && Object.keys(downloadResults).length > 0 && (
+            <>
+              {/* Show Retry button if there were failures */}
+              {Object.values(downloadResults).some(r => !r.success) && (
+                <button onClick={startDownloads} className="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                  Retry Failed Downloads
+                </button>
+              )}
+
+              {/* Allow continuing if only optional components failed OR all succeeded */}
+              {!Object.values(downloadResults).some(r => r.required && !r.success) && (
+                <button onClick={() => setStep(5)} className="btn-primary flex-1">
+                  {Object.values(downloadResults).some(r => !r.success) ? 'Continue Anyway' : 'Continue'}
+                </button>
+              )}
+            </>
           )}
           {step === 5 && (
             <button onClick={onComplete} className="btn-primary flex-1">

@@ -264,6 +264,14 @@ ipcMain.handle('download-component', async (event, options) => {
         result = await bridges.downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
         break;
 
+      case 'ffmpeg':
+        result = await bridges.downloadManager.downloadFfmpeg(progressCallback);
+        break;
+
+      case 'yt-dlp':
+        result = await bridges.downloadManager.downloadYtDlp(progressCallback);
+        break;
+
       default:
         return {
           success: false,
