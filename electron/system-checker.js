@@ -56,25 +56,60 @@ export class SystemChecker {
   }
 
   /**
-   * Check if ffmpeg is available
+   * Check if a command is available in system PATH
+   */
+  _checkSystemCommand(command) {
+    try {
+      const { execSync } = require('child_process');
+      const plat = platform();
+      const checkCmd = plat === 'win32' ? `where ${command}` : `which ${command}`;
+      execSync(checkCmd, { stdio: 'ignore' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check if ffmpeg is available (system or downloaded)
    */
   _checkFfmpeg() {
+    // First check system PATH
+    if (this._checkSystemCommand('ffmpeg')) {
+      return { available: true, source: 'system' };
+    }
+
+    // Then check downloaded version
     const cacheDir = this._getCacheDir();
     const plat = platform();
     const filename = plat === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
     const ffmpegPath = join(cacheDir, 'bin', filename);
-    return existsSync(ffmpegPath);
+    if (existsSync(ffmpegPath)) {
+      return { available: true, source: 'downloaded', path: ffmpegPath };
+    }
+
+    return { available: false };
   }
 
   /**
-   * Check if yt-dlp is available
+   * Check if yt-dlp is available (system or downloaded)
    */
   _checkYtDlp() {
+    // First check system PATH
+    if (this._checkSystemCommand('yt-dlp')) {
+      return { available: true, source: 'system' };
+    }
+
+    // Then check downloaded version
     const cacheDir = this._getCacheDir();
     const plat = platform();
     const filename = plat === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
     const ytDlpPath = join(cacheDir, 'bin', filename);
-    return existsSync(ytDlpPath);
+    if (existsSync(ytDlpPath)) {
+      return { available: true, source: 'downloaded', path: ytDlpPath };
+    }
+
+    return { available: false };
   }
 
   /**
@@ -149,8 +184,11 @@ export class SystemChecker {
       }
 
       // Check for ffmpeg and yt-dlp
-      result.ffmpeg.available = this._checkFfmpeg();
-      result.ytdlp.available = this._checkYtDlp();
+      const ffmpegCheck = this._checkFfmpeg();
+      result.ffmpeg = ffmpegCheck;
+
+      const ytdlpCheck = this._checkYtDlp();
+      result.ytdlp = ytdlpCheck;
     } catch (error) {
       console.error('System check error:', error);
       result.error = error.message;
