@@ -57,6 +57,14 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Cache Python standalone
+        uses: actions/cache@v4
+        with:
+          path: python-standalone
+          key: python-standalone-${{ runner.os }}-${{ hashFiles('scripts/setup-python.js') }}
+          restore-keys: |
+            python-standalone-${{ runner.os }}-
+
       - name: Install dependencies
         run: npm install
 
@@ -66,8 +74,15 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Build Windows app (NSIS + Portable)
-        run: npx electron-builder --win
+      - name: Build Windows NSIS installer
+        run: npx electron-builder --win nsis --x64
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Windows Portable
+        run: npx electron-builder --win portable --x64
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -76,6 +91,7 @@ jobs:
         with:
           name: windows-builds
           path: dist-electron/*.exe
+          if-no-files-found: warn
           retention-days: 7
 
   build-linux:

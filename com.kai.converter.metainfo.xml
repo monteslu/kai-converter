@@ -47,6 +47,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.8" date="2025-10-12">
+      <description>
+        <p>Windows build improvements</p>
+        <ul>
+          <li>Added Python caching for faster Windows builds</li>
+          <li>Split NSIS and Portable builds with separate timeouts</li>
+          <li>Improved upload reliability</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.7" date="2025-10-12">
       <description>
         <p>Build optimizations</p>
