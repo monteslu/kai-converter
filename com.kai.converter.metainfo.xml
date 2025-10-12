@@ -47,6 +47,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.7" date="2025-10-12">
+      <description>
+        <p>Build optimizations</p>
+        <ul>
+          <li>Added caching for faster CI/CD builds</li>
+          <li>Improved flatpak build reliability</li>
+          <li>Non-blocking flatpak builds (AppImage always succeeds)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.6" date="2025-10-12">
       <description>
         <p>Build improvements</p>
