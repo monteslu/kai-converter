@@ -97,7 +97,8 @@ jobs:
           path: |
             ~/.local/share/flatpak
             ~/.cache/flatpak-builder
-          key: flatpak-${{ runner.os }}-v2
+            ~/.var/app/
+          key: flatpak-${{ runner.os }}-v3
           restore-keys: |
             flatpak-${{ runner.os }}-
 
@@ -117,13 +118,11 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Install Flatpak runtimes (x64)
+      - name: Pre-install all Flatpak runtimes (parallel warm-up)
         run: |
-          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/x86_64/24.08 org.freedesktop.Platform/x86_64/24.08 org.freedesktop.Sdk/x86_64/24.08
-
-      - name: Install Flatpak runtimes (arm64)
-        run: |
-          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08 org.freedesktop.Platform/aarch64/24.08 org.freedesktop.Sdk/aarch64/24.08
+          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/x86_64/24.08 org.freedesktop.Platform/x86_64/24.08 org.freedesktop.Sdk/x86_64/24.08 &
+          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08 org.freedesktop.Platform/aarch64/24.08 org.freedesktop.Sdk/aarch64/24.08 &
+          wait
 
       - name: Build Linux x64 AppImage
         run: npx electron-builder --linux AppImage --x64
@@ -137,14 +136,14 @@ jobs:
 
       - name: Build Linux x64 Flatpak
         run: npx electron-builder --linux flatpak --x64
-        timeout-minutes: 30
+        timeout-minutes: 45
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux arm64 Flatpak
         run: npx electron-builder --linux flatpak --arm64
-        timeout-minutes: 30
+        timeout-minutes: 45
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
