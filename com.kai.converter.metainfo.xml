@@ -37,6 +37,7 @@
   <url type="homepage">https://github.com/monteslu/kai-converter</url>
   <url type="bugtracker">https://github.com/monteslu/kai-converter/issues</url>
   <url type="vcs-browser">https://github.com/monteslu/kai-converter</url>
+  <url type="contribute">https://github.com/monteslu/kai-converter</url>
 
   <developer id="com.kai">
     <name>KAI Team</name>
@@ -47,12 +48,12 @@
   <content_rating type="oars-1.1" />
 
   <releases>
-    <release version="0.2.7" date="2025-10-12">
+    <release version="0.2.8" date="2025-10-12">
       <description>
-        <p>Flatpak configuration fix</p>
+        <p>Flatpak metadata fix</p>
         <ul>
-          <li>Added branch: stable to flatpak config</li>
-          <li>Proper repository specification</li>
+          <li>Removed branch field from flatpak config</li>
+          <li>Added contribute URL to metainfo.xml</li>
         </ul>
       </description>
     </release>

@@ -1,6 +1,6 @@
 {
   "name": "kai-converter",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "AI-powered karaoke file creator with source separation and lyrics transcription",
   "main": "electron/main.js",
   "type": "module",
@@ -151,7 +151,6 @@
       "sdk": "org.freedesktop.Sdk",
       "base": "org.electronjs.Electron2.BaseApp",
       "baseVersion": "24.08",
-      "branch": "stable",
       "files": [
         [
           "com.kai.converter.metainfo.xml",
