@@ -97,6 +97,16 @@ async function extractTarGz(tarPath, destDir, progressCallback) {
     strip: 1,
   });
 
+  // Remove macOS quarantine attribute so spawned processes work
+  if (process.platform === 'darwin') {
+    try {
+      execSync(`xattr -cr "${destDir}"`, { stdio: 'ignore' });
+      console.log('Removed macOS quarantine attribute');
+    } catch (e) {
+      console.warn('Could not remove quarantine (non-fatal):', e.message);
+    }
+  }
+
   if (progressCallback) {
     progressCallback({
       stage: 'extract',
