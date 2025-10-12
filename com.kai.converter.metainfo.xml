@@ -48,6 +48,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.2" date="2025-10-12">
+      <description>
+        <p>Critical fix: AppImage spawn ENOTDIR error</p>
+        <ul>
+          <li>Fixed Python subprocess spawning in AppImage environments</li>
+          <li>Removed problematic cwd parameter pointing to app.asar file</li>
+          <li>System check and Python operations now work in AppImage</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.1" date="2025-10-12">
       <description>
         <p>Critical fix: DownloadManager Python path</p>

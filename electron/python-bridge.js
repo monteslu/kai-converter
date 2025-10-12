@@ -289,7 +289,6 @@ finally:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: {
           ...this._getEnvWithBinPath(),
@@ -464,7 +463,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -560,7 +558,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -657,7 +654,6 @@ print(json.dumps(result))
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -731,7 +727,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -883,7 +878,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -984,7 +978,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -1106,7 +1099,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
@@ -1251,7 +1243,6 @@ except Exception as e:
       ];
 
       const python = spawn(this.pythonPath, args, {
-        cwd: join(__dirname, '..'),
         stdio: ['pipe', 'pipe', 'pipe'],
         env: this._getEnvWithBinPath(),
       });
