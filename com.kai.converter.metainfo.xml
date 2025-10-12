@@ -47,6 +47,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.7" date="2025-10-12">
+      <description>
+        <p>Flatpak configuration fix</p>
+        <ul>
+          <li>Added branch: stable to flatpak config</li>
+          <li>Proper repository specification</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.6" date="2025-10-12">
       <description>
         <p>Flatpak build optimizations</p>
