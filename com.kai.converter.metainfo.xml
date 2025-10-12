@@ -47,6 +47,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.4" date="2025-10-12">
+      <description>
+        <p>UI improvements and bug fixes</p>
+        <ul>
+          <li>Fixed icon size for Flatpak compatibility</li>
+          <li>Improved lyric editor: clicking text field now selects the row</li>
+          <li>Enhanced selection visibility with better color contrast</li>
+          <li>Text inputs now more clearly editable</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.3" date="2025-10-12">
       <description>
         <p>Initial release with core features</p>
