@@ -9,13 +9,55 @@ ARCH="$(uname -m)"
 echo "Detected: $OS on $ARCH"
 echo ""
 
+# Find a Python version with venv support
+PYTHON_CMD=""
+TEMP_VENV_TEST="/tmp/kai_venv_test_$$"
+
+# Try python3 first, then find all python3.* in PATH
+candidates=("python3")
+while IFS= read -r py_path; do
+    py_name=$(basename "$py_path")
+    candidates+=("$py_name")
+done < <(find /usr/bin -name 'python3.*' -type f 2>/dev/null | sort -V -r)
+
+for py_version in "${candidates[@]}"; do
+    if command -v "$py_version" &> /dev/null; then
+        # Check version is >= 3.8
+        ver=$("$py_version" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        major=$(echo "$ver" | cut -d. -f1)
+        minor=$(echo "$ver" | cut -d. -f2)
+
+        if [ "$major" -eq 3 ] && [ "$minor" -ge 8 ]; then
+            # Actually test venv creation (not just --help)
+            if "$py_version" -m venv "$TEMP_VENV_TEST" &> /dev/null; then
+                PYTHON_CMD="$py_version"
+                rm -rf "$TEMP_VENV_TEST"
+                break
+            fi
+            rm -rf "$TEMP_VENV_TEST"
+        fi
+    fi
+done
+
+if [ -z "$PYTHON_CMD" ]; then
+    echo "✗ No Python 3.8+ with venv support found."
+    echo ""
+    echo "Please install Python venv support for one of your installed Python versions:"
+    echo "  sudo apt install python3-venv"
+    echo ""
+    echo "Or for a specific version (e.g., Python 3.12):"
+    echo "  sudo apt install python3.12-venv"
+    echo ""
+    exit 1
+fi
+
 # Check Python version
-PYTHON_VERSION=$(python3 --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
-echo "Python version: $PYTHON_VERSION"
+PYTHON_VERSION=$("$PYTHON_CMD" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+')
+echo "Using Python: $PYTHON_CMD (version $PYTHON_VERSION)"
 
 # Check if we're in a virtual environment
 if [[ "$VIRTUAL_ENV" == "" ]]; then
-    if [ -d "venv" ]; then
+    if [ -d "venv" ] && [ -f "venv/bin/activate" ]; then
         echo "Virtual environment exists but not activated."
         echo "Activating virtual environment..."
         source venv/bin/activate
@@ -26,17 +68,30 @@ if [[ "$VIRTUAL_ENV" == "" ]]; then
         echo "✓ Virtual environment activated"
         echo ""
     else
+        # Remove incomplete venv if it exists
+        if [ -d "venv" ]; then
+            echo "Found incomplete virtual environment, removing..."
+            rm -rf venv
+        fi
         echo "No virtual environment detected."
         read -p "Create one now? (Y/n) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Nn]$ ]]; then
             echo "Installation cancelled. Create a virtual environment with:"
-            echo "  python3 -m venv venv"
+            echo "  $PYTHON_CMD -m venv venv"
             echo "  source venv/bin/activate"
             exit 1
         fi
         echo "Creating virtual environment..."
-        python3 -m venv venv
+        if ! "$PYTHON_CMD" -m venv venv; then
+            echo ""
+            echo "✗ Failed to create virtual environment."
+            echo ""
+            echo "This should not happen as venv support was detected."
+            echo "Please report this issue."
+            echo ""
+            exit 1
+        fi
         echo "✓ Virtual environment created"
         echo "Activating virtual environment..."
         source venv/bin/activate
@@ -204,9 +259,9 @@ echo "Installing core audio processing libraries..."
 if [ "$CUDA_PYTORCH_INSTALLED" = "true" ]; then
     # Install without torch dependency to avoid overwriting CUDA version
     pip install --no-deps demucs || pip install demucs
-    pip install librosa scipy mutagen
+    pip install scipy mutagen
 else
-    pip install demucs librosa scipy mutagen
+    pip install demucs scipy mutagen
 fi
 
 # Try to install optional packages
@@ -217,21 +272,21 @@ echo "Installing optional analysis packages..."
 pip install Cython 2>/dev/null || true
 
 # Try madmom (optional - provides better music analysis)
-echo "  Attempting madmom (better onset/beat detection)..."
+echo "  Attempting madmom (onset/beat detection)..."
 if pip install madmom --no-build-isolation 2>/dev/null; then
     echo "  ✓ madmom installed successfully"
 else
-    echo "  ⚠ madmom installation failed - will use librosa fallback"
+    echo "  ⚠ madmom installation failed - onset/beat features will be unavailable"
 fi
 
 # Try essentia (optional - provides better key detection)
-echo "  Attempting essentia (better key detection)..."
+echo "  Attempting essentia (key detection)..."
 if [[ "$ARCH" == "aarch64" ]] || [[ "$ARCH" == "arm64" ]]; then
     # ARM systems may have limited essentia versions
-    pip install 'essentia>=2.1b6.dev234' 2>/dev/null && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - will use librosa fallback"
+    pip install 'essentia>=2.1b6.dev234' 2>/dev/null && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - key detection features will be unavailable"
 else
     # x86_64 systems can use newer versions
-    (pip install 'essentia>=2.1b6.dev374' 2>/dev/null || pip install 'essentia>=2.1b6.dev234' 2>/dev/null) && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - will use librosa fallback"
+    (pip install 'essentia>=2.1b6.dev374' 2>/dev/null || pip install 'essentia>=2.1b6.dev234' 2>/dev/null) && echo "  ✓ essentia installed successfully" || echo "  ⚠ essentia installation failed - key detection features will be unavailable"
 fi
 
 # Install any remaining requirements
@@ -251,16 +306,12 @@ if [[ "$VIRTUAL_ENV" == "" ]]; then
     export PYTHONPATH="$HOME/.local/lib/python$PYTHON_VERSION/site-packages:$PYTHONPATH"
 fi
 
-# Use the same Python that pip is using
-PYTHON_CMD="${PYTHON_CMD:-python3}"
-
 $PYTHON_CMD -c "import torch; print('  ✓ PyTorch', torch.__version__)" 2>/dev/null || echo "  ✗ PyTorch"
 $PYTHON_CMD -c "import torchaudio; print('  ✓ torchaudio', torchaudio.__version__)" 2>/dev/null || echo "  ✗ torchaudio"
 $PYTHON_CMD -c "import demucs; print('  ✓ demucs')" 2>/dev/null || echo "  ✗ demucs"
-$PYTHON_CMD -c "import librosa; print('  ✓ librosa', librosa.__version__)" 2>/dev/null || echo "  ✗ librosa"
 $PYTHON_CMD -c "import torchcrepe; print('  ✓ torchcrepe (GPU-capable pitch detection)')" 2>/dev/null || echo "  ✗ torchcrepe"
-$PYTHON_CMD -c "import madmom; print('  ✓ madmom (enhanced audio analysis)')" 2>/dev/null || echo "  ⚠ madmom (using librosa fallback)"
-$PYTHON_CMD -c "import essentia; print('  ✓ essentia (enhanced key detection)')" 2>/dev/null || echo "  ⚠ essentia (using librosa fallback)"
+$PYTHON_CMD -c "import madmom; print('  ✓ madmom (onset/beat detection)')" 2>/dev/null || echo "  ⚠ madmom (optional - onset/beat features unavailable)"
+$PYTHON_CMD -c "import essentia; print('  ✓ essentia (key detection)')" 2>/dev/null || echo "  ⚠ essentia (optional - key detection features unavailable)"
 
 # Check CUDA availability
 echo ""

@@ -349,12 +349,15 @@ REQUIRED JSON FORMAT:
 
 !!!!! JSON VALIDATION REQUIREMENTS !!!!!
 - Start response with {{ (opening brace)
-- End response with }} (closing brace) 
-- All strings must be in double quotes
+- End response with }} (closing brace)
+- ALL property names MUST be in double quotes (e.g., "corrections": not corrections:)
+- ALL string values must be in double quotes
 - Escape any quotes in text with \"
-- Use valid JSON syntax only
+- Use STRICT JSON syntax only (NOT JavaScript object notation)
 - Do not include markdown formatting
 - Do not wrap in code blocks
+- Example of CORRECT format: {{"corrections": [{{"line_num": 1}}]}}
+- Example of WRONG format: {{corrections: [{{line_num: 1}}]}} (missing quotes on property names)
 
 IMPORTANT ABOUT MISSING LINES:
 - ONLY suggest missing lines if you have strong evidence from:
@@ -370,49 +373,11 @@ IMPORTANT ABOUT MISSING LINES:
 CRITICAL: Only include lines that actually need correction in the corrections array.
 CRITICAL: Only suggest missing lines where you have evidence from pitch/reference/timing.
 CRITICAL: Return ONLY valid JSON, no explanations, no markdown blocks, no additional text.
+CRITICAL: ALL property names must be quoted: "corrections" NOT corrections, "line_num" NOT line_num
 
 JSON OUTPUT:"""
     
     return prompt
-
-def fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, chunk_size=10, song_data=None, kai_file_path=None):
-    """Process lyrics in smaller chunks to avoid token limits"""
-    if len(transcribed_lines) <= chunk_size:
-        # Small enough to process in one go
-        return fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
-    
-    print(f"Processing {len(transcribed_lines)} lines in chunks of {chunk_size}...")
-    
-    # Process in chunks
-    corrected_lines = []
-    all_rejections = []
-    for i in range(0, len(transcribed_lines), chunk_size):
-        chunk = transcribed_lines[i:i+chunk_size]
-        chunk_end = min(i+chunk_size, len(transcribed_lines))
-        print(f"\n=== Processing chunk: lines {i+1}-{chunk_end} ===")
-        
-        # Show what's in this chunk
-        for j, line in enumerate(chunk):
-            print(f"  Line {i+j+1}: {line.get('text', '')[:50]}...")
-        
-        correction_result = fix_lyrics_with_llm(chunk, correct_lyrics, api_key, llm_config, song_data=song_data, kai_file_path=kai_file_path)
-        if correction_result and len(correction_result) == 3:
-            corrected_chunk, chunk_rejections, chunk_missing = correction_result
-            if corrected_chunk is not None:
-                corrected_lines.extend(corrected_chunk)
-                all_rejections.extend(chunk_rejections)
-                # Note: We don't aggregate missing lines from chunks - they're per-song level
-            else:
-                # If correction fails, keep original
-                print(f"  WARNING: Chunk correction returned None, keeping original")
-                corrected_lines.extend(chunk)
-        else:
-            # If correction fails, keep original
-            print(f"  WARNING: Chunk correction failed, keeping original")
-            corrected_lines.extend(chunk)
-    
-    return corrected_lines, all_rejections, []
-
 
 def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_config=None, song_data=None, kai_file_path=None):
     """Send to LLM API to fix lyrics - simplified working version."""
@@ -482,44 +447,23 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
         start_time = time.time()
 
         messages = [
-            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data."},
+            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data. You MUST return ONLY valid JSON with ALL property names in double quotes. Use strict JSON format, NOT JavaScript object notation."},
             {"role": "user", "content": prompt}
         ]
 
         response_text = provider.complete_chat(messages, model=model, temperature=0.1)
         elapsed = time.time() - start_time
-        print(f"Received response from {provider_type} in {elapsed:.1f} seconds")
 
-        # Log FULL response for debugging
-        print(f"Response length: {len(response_text)} characters")
-        print(f"=== FULL RAW RESPONSE FROM {provider_type.upper()} ===")
-        print(response_text)
-        print("=" * 50)
+        # Check if provider captured the actual model used (for local providers)
+        actual_model = getattr(provider, 'last_model_used', None) or model
 
-        # Clean up response if needed (remove markdown blocks)
-        if "```json" in response_text:
-            response_text = response_text.split("```json")[1].split("```")[0]
-        elif "```" in response_text:
-            response_text = response_text.split("```")[1].split("```")[0]
+        # Store actual model in llm_config for error reporting
+        if llm_config:
+            llm_config['_actual_model_used'] = actual_model
 
-        # Try to extract just the JSON object from the response
-        response_text = response_text.strip()
-        start_idx = response_text.find('{')
-        if start_idx != -1:
-            # Find the matching closing brace
-            brace_count = 0
-            end_idx = start_idx
-            for i, char in enumerate(response_text[start_idx:], start_idx):
-                if char == '{':
-                    brace_count += 1
-                elif char == '}':
-                    brace_count -= 1
-                    if brace_count == 0:
-                        end_idx = i
-                        break
-            response_text = response_text[start_idx:end_idx+1]
+        print(f"Received response from {provider_type} ({actual_model}) in {elapsed:.1f} seconds")
 
-        # Try to parse JSON
+        # Try to parse JSON as-is first
         try:
             response_data = json.loads(response_text)
 
@@ -557,11 +501,138 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
             return corrected_lines, rejections, missing_lines, corrections_applied
 
         except json.JSONDecodeError as e:
-            logger.error(f"JSON parsing error: {e}")
-            logger.error(f"=== FULL RESPONSE THAT FAILED TO PARSE ===")
+            logger.error(f"Initial JSON parsing failed: {e}")
+            logger.error(f"Response length: {len(response_text)} characters")
+            logger.error(f"=== FULL RAW RESPONSE FROM {provider_type.upper()} ===")
             logger.error(response_text)
             logger.error("=" * 50)
-            logger.error(f"Response length: {len(response_text)} characters")
+
+            # Save raw response to debug file
+            try:
+                import os
+                debug_file = os.path.join(os.getcwd(), "llm_response_debug.txt")
+                with open(debug_file, "w", encoding="utf-8") as f:
+                    f.write(f"Provider: {provider_type}\n")
+                    f.write(f"Model: {model}\n")
+                    f.write(f"Response length: {len(response_text)} characters\n")
+                    f.write(f"Initial parse error: {e}\n")
+                    f.write("=" * 50 + "\n")
+                    f.write(response_text)
+                    f.write("\n" + "=" * 50 + "\n")
+                logger.error(f"Saved raw response to {debug_file}")
+            except Exception as save_err:
+                logger.error(f"Failed to save debug file: {save_err}")
+
+            logger.error(f"Attempting cleanup and retry...")
+
+            # Step 1: Try removing markdown blocks
+            cleaned = response_text
+            if "```json" in cleaned:
+                cleaned = cleaned.split("```json")[1].split("```")[0]
+                logger.error(f"Extracted from ```json block")
+            elif "```" in cleaned:
+                cleaned = cleaned.split("```")[1].split("```")[0]
+                logger.error(f"Extracted from ``` block")
+
+            # Step 2: Try to extract just the JSON object
+            cleaned = cleaned.strip()
+            start_idx = cleaned.find('{')
+            if start_idx != -1:
+                brace_count = 0
+                end_idx = start_idx
+                for i, char in enumerate(cleaned[start_idx:], start_idx):
+                    if char == '{':
+                        brace_count += 1
+                    elif char == '}':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            end_idx = i
+                            break
+                cleaned = cleaned[start_idx:end_idx+1]
+                logger.error(f"Extracted JSON object from position {start_idx} to {end_idx}")
+
+            # Try parsing cleaned version
+            if cleaned != response_text:
+                logger.error(f"=== CLEANED JSON ===")
+                logger.error(cleaned)
+                logger.error("=" * 50)
+                try:
+                    response_data = json.loads(cleaned)
+                    logger.error(f"✓ Successfully parsed after cleanup!")
+
+                    # Process and return
+                    if isinstance(response_data, list):
+                        corrections = response_data
+                        missing_lines = []
+                    else:
+                        corrections = response_data.get('corrections', [])
+                        missing_lines = response_data.get('missing_lines', [])
+
+                    corrected_lines = transcribed_lines.copy()
+                    corrections_applied = 0
+                    rejections = []
+
+                    for correction in corrections:
+                        line_num = correction.get('line_num', 0)
+                        old_text = correction.get('old_text', '')
+                        new_text = correction.get('new_text', '')
+                        line_idx = line_num - 1
+                        if 0 <= line_idx < len(corrected_lines):
+                            original_line = corrected_lines[line_idx]
+                            original_text = original_line.get('text', '')
+                            if old_text == original_text:
+                                if new_text and new_text != original_text:
+                                    corrected_lines[line_idx]['text'] = new_text
+                                    corrections_applied += 1
+
+                    return corrected_lines, rejections, missing_lines, corrections_applied
+                except json.JSONDecodeError as e2:
+                    logger.error(f"Cleaned JSON also failed: {e2}")
+
+            # Step 3: Try fixing unquoted property names
+            import re
+            fixed_json = re.sub(r'([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', cleaned)
+
+            if fixed_json != cleaned:
+                logger.error(f"Applied property name quote fixes")
+                logger.error(f"=== FIXED JSON ===")
+                logger.error(fixed_json)
+                logger.error("=" * 50)
+
+                try:
+                    response_data = json.loads(fixed_json)
+                    logger.error(f"✓ Successfully parsed after fixing property names!")
+
+                    if isinstance(response_data, list):
+                        corrections = response_data
+                        missing_lines = []
+                    else:
+                        corrections = response_data.get('corrections', [])
+                        missing_lines = response_data.get('missing_lines', [])
+
+                    corrected_lines = transcribed_lines.copy()
+                    corrections_applied = 0
+                    rejections = []
+
+                    for correction in corrections:
+                        line_num = correction.get('line_num', 0)
+                        old_text = correction.get('old_text', '')
+                        new_text = correction.get('new_text', '')
+                        line_idx = line_num - 1
+                        if 0 <= line_idx < len(corrected_lines):
+                            original_line = corrected_lines[line_idx]
+                            original_text = original_line.get('text', '')
+                            if old_text == original_text:
+                                if new_text and new_text != original_text:
+                                    corrected_lines[line_idx]['text'] = new_text
+                                    corrections_applied += 1
+
+                    return corrected_lines, rejections, missing_lines, corrections_applied
+                except json.JSONDecodeError as e3:
+                    logger.error(f"✗ Fixed JSON also failed to parse: {e3}")
+
+            # All attempts failed
+            logger.error(f"=== ALL PARSING ATTEMPTS FAILED ===")
             logger.error(f"First 100 chars: {response_text[:100]}")
             logger.error(f"Last 100 chars: {response_text[-100:]}")
             return None, [], [], 0
@@ -704,104 +775,120 @@ def auto_fetch_lyrics(title, artist):
     
     return None, None
 
-@click.command()
-@click.argument('kai_file', type=click.Path(exists=True, path_type=Path))
-@click.option('--lyrics-source', '-l', type=str, help='Lyrics source file or URL (auto-fetch if not provided)')
-@click.option('--output', '-o', type=click.Path(path_type=Path), help='Output KAI file (default: {input}_fixed.kai)')
-@click.option('--llm-provider', default='auto', help='LLM provider: openai, lmstudio, anthropic, gemini, openai-compatible (default: auto)')
-@click.option('--llm-model', help='Model name (uses provider default if not specified)')
-@click.option('--llm-base-url', help='Base URL for LM Studio or OpenAI-compatible APIs (default: http://localhost:1234)')
-@click.option('--llm-api-key', help='API key (overrides environment variables)')
-def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, llm_model: str, llm_base_url: str, llm_api_key: str):
-    """Fix transcribed lyrics in a KAI file using LLM providers for correction.
-    
-    Supports OpenAI, local LM Studio, Anthropic Claude, Google Gemini, and OpenAI-compatible APIs.
-    Auto-detects provider based on available API keys or defaults to LM Studio.
-    
-    Examples:
-      python3 fix_lyrics.py song.kai                                    # Auto-fetch lyrics (auto-detect provider)
-      python3 fix_lyrics.py song.kai -l lyrics.txt                      # Use local file
-      python3 fix_lyrics.py song.kai --llm-provider openai              # Use OpenAI
-      python3 fix_lyrics.py song.kai --llm-provider lmstudio            # Use LM Studio (local)
-      python3 fix_lyrics.py song.kai --llm-provider anthropic           # Use Claude
-      python3 fix_lyrics.py song.kai --llm-provider gemini              # Use Google Gemini
-      python3 fix_lyrics.py song.kai --llm-model llama-3.1-8b-instruct  # Custom model
-      python3 fix_lyrics.py song.kai -l https://genius.com/... # Use URL
-      python3 fix_lyrics.py song.kai -o corrected.kai          # Custom output name
+def fix_lyrics_direct(
+    kai_file: Path,
+    lyrics_source: str = None,
+    output: Path = None,
+    llm_provider: str = 'auto',
+    llm_model: str = None,
+    llm_base_url: str = None,
+    llm_api_key: str = None,
+    progress_callback=None
+):
     """
-    # Set default output path if not provided
-    if not output:
-        # Create filename like "song_fixed.kai" from "song.kai"
-        stem = kai_file.stem  # "song" from "song.kai"
-        output = kai_file.parent / f"{stem}_fixed.kai"
-    
-    # Log the start of lyrics fixing
-    logger.info(f"=== STARTING LYRICS FIXING ===")
-    logger.info(f"Input KAI file: {kai_file}")
-    logger.info(f"Output KAI file: {output}")
-    logger.info(f"LLM Provider: {llm_provider}")
-    
+    Fix transcribed lyrics in a KAI file using LLM - programmatic interface.
+
+    This function can be called directly from Python code without going through
+    the CLI. It supports progress callbacks for GUI integration.
+
+    Args:
+        kai_file: Path to input KAI file
+        lyrics_source: Optional lyrics source (file path or URL). If None, auto-fetches.
+        output: Optional output path. If None, creates {input}_fixed.kai
+        llm_provider: LLM provider ('openai', 'lmstudio', 'anthropic', 'gemini', 'auto')
+        llm_model: Optional model name (uses provider default if None)
+        llm_base_url: Optional base URL for custom APIs
+        llm_api_key: Optional API key (overrides environment variables)
+        progress_callback: Optional callback function(stage: str, percent: float, message: str)
+
+    Returns:
+        Dictionary with results:
+        {
+            "success": bool,
+            "output_file": str,            # Path to output file (if success)
+            "corrections_applied": int,    # Number of corrections made (if success)
+            "rejections": int,             # Number of rejected corrections (if success)
+            "missing_lines": int,          # Number of missing lines suggested (if success)
+            "error": str                   # Error message (if not success)
+        }
+    """
+    def emit_progress(stage: str, percent: float, message: str):
+        """Emit progress if callback is provided."""
+        if progress_callback:
+            try:
+                progress_callback(stage, percent, message)
+            except Exception as e:
+                logger.warning(f"Progress callback error: {e}")
+
     try:
-        # Load KAI data first
+        emit_progress("initializing", 0, "Loading KAI file...")
+
+        # Set default output path if not provided
+        if not output:
+            stem = kai_file.stem
+            output = kai_file.parent / f"{stem}_fixed.kai"
+
+        # Log the start
+        logger.info(f"=== STARTING LYRICS FIXING ===")
+        logger.info(f"Input KAI file: {kai_file}")
+        logger.info(f"Output KAI file: {output}")
+        logger.info(f"LLM Provider: {llm_provider}")
+
+        # Load KAI data
+        emit_progress("loading", 10, "Loading song data...")
         print(f"Loading KAI file: {kai_file}")
         song_data = load_kai_lyrics(kai_file)
         transcribed_lines = song_data.get('lines', [])
         title = song_data['song'].get('title', '')
         artist = song_data['song'].get('artist', '')
-        
+
         logger.info(f"Loaded song: {title} by {artist}")
         logger.info(f"Total lyric lines: {len(transcribed_lines)}")
-        
+
         # Determine lyrics source
+        emit_progress("fetching", 20, "Fetching reference lyrics...")
         if lyrics_source:
-            # User provided lyrics source
             print(f"Loading correct lyrics from: {lyrics_source}")
             correct_lyrics = load_correct_lyrics(lyrics_source)
             song_description = None
         else:
-            # Auto-fetch lyrics based on metadata
             fetch_result = auto_fetch_lyrics(title, artist)
-            
+
             if not fetch_result or not fetch_result[0]:
-                print("Failed to auto-fetch lyrics. Please provide a URL or text file.")
-                sys.exit(1)
-            
+                error_msg = "Failed to auto-fetch lyrics"
+                logger.error(error_msg)
+                emit_progress("error", 0, error_msg)
+                return {
+                    "success": False,
+                    "error": error_msg
+                }
+
             correct_lyrics, song_description = fetch_result
-        
-        # If we got a description and there's no existing non-empty comment, store it as comment
+
+        # Store song description if available
         if song_description:
             existing_comment = song_data.get('song', {}).get('comment', '')
             if not existing_comment:
                 print(f"=== SONG DESCRIPTION (storing as comment) ===")
                 print(f"Description: {song_description}")
                 print("=" * 40)
-                
-                # Store description as comment in song metadata
+
                 if 'song' not in song_data:
                     song_data['song'] = {}
                 song_data['song']['comment'] = song_description
-            else:
-                print(f"Existing comment found, skipping: {existing_comment}")
-        
+
         print(f"Found {len(transcribed_lines)} transcribed lines")
-        print(f"\n--- Fetched Lyrics Preview ---")
-        preview_lines = correct_lyrics.split('\n')[:10]  # Show first 10 lines
-        for line in preview_lines:
-            if line.strip():
-                print(f"  {line}")
-        if len(correct_lyrics.split('\n')) > 10:
-            print(f"  ... ({len(correct_lyrics.split('\n'))} total lines)")
-        print("--- End Preview ---\n")
-        
-        # Fix lyrics with LLM 
+
+        # Fix lyrics with LLM
+        emit_progress("correcting", 40, "Sending to LLM for correction...")
         llm_config = {
             'provider': llm_provider,
             'model': llm_model,
             'base_url': llm_base_url,
             'api_key': llm_api_key
         }
-        
-        # Retry logic for LLM calls
+
+        # Retry logic
         song_name = kai_file.stem
         max_retries = 3
         result = None
@@ -809,14 +896,11 @@ def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, ll
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(f"=== LYRICS FIXING ATTEMPT {attempt}/{max_retries} FOR: {song_name} ===")
+                emit_progress("correcting", 40 + (attempt * 15), f"Lyric correction attempt {attempt}/{max_retries}...")
 
-                # Use smaller chunks for local LM Studio due to context limits
-                if llm_provider == 'lmstudio' and len(transcribed_lines) > 10:
-                    result = fix_lyrics_in_chunks(transcribed_lines, correct_lyrics, llm_config=llm_config, chunk_size=8, song_data=song_data, kai_file_path=kai_file)
-                else:
-                    result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data, kai_file_path=kai_file)
+                # Process all lines at once (chunking disabled - most local models now have large context windows)
+                result = fix_lyrics_with_llm(transcribed_lines, correct_lyrics, llm_config=llm_config, song_data=song_data, kai_file_path=kai_file)
 
-                # Check if we got a valid result
                 if result and len(result) == 4 and result[0] is not None:
                     logger.info(f"✓ Lyrics fixing succeeded on attempt {attempt}")
                     break
@@ -834,73 +918,132 @@ def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, ll
                     import time
                     time.sleep(3)
 
-        # Final check - if all attempts failed, log to error file and exit
+        # Check if all attempts failed
         if not result or len(result) != 4 or result[0] is None:
+            # Build descriptive LLM name for error message
+            # Use actual model returned by provider if available
+            actual_model = llm_config.get('_actual_model_used', llm_model)
+            llm_display_name = llm_provider or "unknown"
+            if actual_model:
+                llm_display_name = f"{llm_provider}:{actual_model}"
+            elif llm_provider == "lmstudio":
+                llm_display_name = "local"
+
             with open("errored_songs.txt", "a", encoding="utf-8") as f:
                 from datetime import datetime
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 f.write(f"[{timestamp}] FINAL FAILURE: {song_name}\n")
-                f.write(f"Error: All {max_retries} attempts failed - LLM returned empty/invalid results\n")
+                f.write(f"Error: All {max_retries} attempts failed - LLM({llm_display_name}) returned empty/invalid results\n")
                 f.write("-" * 50 + "\n")
 
-            logger.error(f"✗ All {max_retries} attempts failed for {song_name}")
-            logger.error("=== LYRICS FIXING FAILED - SONG ADDED TO errored_songs.txt ===")
-            sys.exit(1)
-        
-        if result and len(result) == 4:
-            corrected_lines, rejections, missing_lines_suggested, corrections_applied = result
+            error_msg = f"All {max_retries} attempts failed - LLM({llm_display_name}) returned empty/invalid results"
+            logger.error(f"✗ {error_msg}")
+            emit_progress("error", 0, error_msg)
+            return {
+                "success": False,
+                "error": error_msg
+            }
 
-            # Check if corrected_lines is valid
-            if corrected_lines is None:
-                logger.error("Failed to correct lyrics - no corrected lines returned")
-                return
-            
-            # Add rejections and missing lines to song metadata if there are any
-            if rejections or missing_lines_suggested:
-                if 'meta' not in song_data:
-                    song_data['meta'] = {}
-                if 'corrections' not in song_data['meta']:
-                    song_data['meta']['corrections'] = {}
+        emit_progress("saving", 85, "Saving corrected lyrics...")
 
-                if rejections:
-                    song_data['meta']['corrections']['rejected'] = rejections
-                    print(f"\n=== SAVED {len(rejections)} REJECTIONS TO SONG METADATA ===\n")
+        corrected_lines, rejections, missing_lines_suggested, corrections_applied = result
 
-                if missing_lines_suggested:
-                    song_data['meta']['corrections']['missing_lines_suggested'] = missing_lines_suggested
-                    print(f"\n=== SAVED {len(missing_lines_suggested)} MISSING LINE SUGGESTIONS TO SONG METADATA ===\n")
-            
-            # Show comparison
-            print("\n--- Sample Corrections ---")
-            for i in range(min(3, len(transcribed_lines))):
-                old_text = transcribed_lines[i].get('text', '')
-                new_text = corrected_lines[i].get('text', '')
-                if old_text != new_text:
-                    print(f"Line {i+1}:")
-                    print(f"  OLD: {old_text}")
-                    print(f"  NEW: {new_text}")
-            
-            # Use the actual count from the LLM function
-            logger.info(f"Applied {corrections_applied} corrections")
-            
+        if corrected_lines is None:
+            error_msg = "No corrected lines returned"
+            logger.error(error_msg)
+            emit_progress("error", 0, error_msg)
+            return {
+                "success": False,
+                "error": error_msg
+            }
+
+        # Add metadata
+        if rejections or missing_lines_suggested:
+            if 'meta' not in song_data:
+                song_data['meta'] = {}
+            if 'corrections' not in song_data['meta']:
+                song_data['meta']['corrections'] = {}
+
             if rejections:
-                logger.info(f"Rejected {len(rejections)} questionable corrections")
-            
+                song_data['meta']['corrections']['rejected'] = rejections
             if missing_lines_suggested:
-                logger.info(f"Suggested {len(missing_lines_suggested)} missing lines")
-            
-            # Update KAI file
-            update_kai_file(kai_file, output, corrected_lines, song_data)
-            logger.info(f"SUCCESS! Corrected KAI file saved: {output}")
-            logger.info("=== LYRICS FIXING COMPLETED SUCCESSFULLY ===")
-        else:
-            logger.error("Failed to correct lyrics - no result returned from LLM")
-            logger.error("=== LYRICS FIXING FAILED ===")
-    
+                song_data['meta']['corrections']['missing_lines_suggested'] = missing_lines_suggested
+
+        logger.info(f"Applied {corrections_applied} corrections")
+        if rejections:
+            logger.info(f"Rejected {len(rejections)} questionable corrections")
+        if missing_lines_suggested:
+            logger.info(f"Suggested {len(missing_lines_suggested)} missing lines")
+
+        # Update KAI file
+        update_kai_file(kai_file, output, corrected_lines, song_data)
+
+        emit_progress("complete", 100, "Lyrics fixing complete!")
+        logger.info(f"SUCCESS! Corrected KAI file saved: {output}")
+        logger.info("=== LYRICS FIXING COMPLETED SUCCESSFULLY ===")
+
+        return {
+            "success": True,
+            "output_file": str(output),
+            "corrections_applied": corrections_applied,
+            "rejections": len(rejections) if rejections else 0,
+            "missing_lines": len(missing_lines_suggested) if missing_lines_suggested else 0
+        }
+
     except Exception as e:
-        logger.error(f"EXCEPTION during lyrics fixing: {e}")
+        error_msg = f"Exception during lyrics fixing: {str(e)}"
+        logger.error(error_msg)
         logger.error(f"KAI file: {kai_file}")
-        logger.error("=== LYRICS FIXING FAILED WITH EXCEPTION ===")
+        emit_progress("error", 0, error_msg)
+        return {
+            "success": False,
+            "error": error_msg
+        }
+
+
+@click.command()
+@click.argument('kai_file', type=click.Path(exists=True, path_type=Path))
+@click.option('--lyrics-source', '-l', type=str, help='Lyrics source file or URL (auto-fetch if not provided)')
+@click.option('--output', '-o', type=click.Path(path_type=Path), help='Output KAI file (default: {input}_fixed.kai)')
+@click.option('--llm-provider', default='auto', help='LLM provider: openai, lmstudio, anthropic, gemini, openai-compatible (default: auto)')
+@click.option('--llm-model', help='Model name (uses provider default if not specified)')
+@click.option('--llm-base-url', help='Base URL for LM Studio or OpenAI-compatible APIs (default: http://localhost:1234)')
+@click.option('--llm-api-key', help='API key (overrides environment variables)')
+def main(kai_file: Path, lyrics_source: str, output: Path, llm_provider: str, llm_model: str, llm_base_url: str, llm_api_key: str):
+    """Fix transcribed lyrics in a KAI file using LLM providers for correction.
+
+    Supports OpenAI, local LM Studio, Anthropic Claude, Google Gemini, and OpenAI-compatible APIs.
+    Auto-detects provider based on available API keys or defaults to LM Studio.
+
+    Examples:
+      python3 fix_lyrics.py song.kai                                    # Auto-fetch lyrics (auto-detect provider)
+      python3 fix_lyrics.py song.kai -l lyrics.txt                      # Use local file
+      python3 fix_lyrics.py song.kai --llm-provider openai              # Use OpenAI
+      python3 fix_lyrics.py song.kai --llm-provider lmstudio            # Use LM Studio (local)
+      python3 fix_lyrics.py song.kai --llm-provider anthropic           # Use Claude
+      python3 fix_lyrics.py song.kai --llm-provider gemini              # Use Google Gemini
+      python3 fix_lyrics.py song.kai --llm-model llama-3.1-8b-instruct  # Custom model
+      python3 fix_lyrics.py song.kai -l https://genius.com/... # Use URL
+      python3 fix_lyrics.py song.kai -o corrected.kai          # Custom output name
+    """
+    # Call the programmatic interface
+    result = fix_lyrics_direct(
+        kai_file=kai_file,
+        lyrics_source=lyrics_source,
+        output=output,
+        llm_provider=llm_provider,
+        llm_model=llm_model,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key
+    )
+
+    # Handle result
+    if not result["success"]:
+        print(f"ERROR: {result['error']}")
+        sys.exit(1)
+
+    # Success - already logged by fix_lyrics_direct
+    sys.exit(0)
 
 if __name__ == "__main__":
     main()

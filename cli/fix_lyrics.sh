@@ -3,6 +3,14 @@
 # fix_lyrics.sh - Use LLM providers to correct lyrics in a KAI file
 # Wrapper for the Python lyrics correction tool
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # If no arguments provided, show usage
 if [ $# -eq 0 ]; then
     echo "Usage: $0 INPUT.kai [OPTIONS]"
@@ -42,8 +50,5 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Pass all arguments to the Python script with correct PYTHONPATH
-PYTHONPATH="${SCRIPT_DIR}/src:${PYTHONPATH}" python3 "${SCRIPT_DIR}/src/utils/fix_lyrics.py" "$@"
+PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH}" "$PYTHON_PATH" "${PROJECT_ROOT}/src/utils/fix_lyrics.py" "$@"

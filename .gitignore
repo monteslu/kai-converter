@@ -2,6 +2,9 @@
 *.mp3
 *.mp4
 songs/
+cli/*.kai
+cli/*.mp3
+cli/*.mp4
 
 # Python
 __pycache__/
@@ -18,6 +21,8 @@ ENV/
 dist/
 build/
 .pytest_cache/
+python-standalone/
+python-dist/
 
 # IDE
 .vscode/
@@ -30,3 +35,17 @@ build/
 .DS_Store
 .AppleDouble
 .LSOverride
+logs/
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Electron / Vite
+renderer/dist/
+dist-electron/
+*.local
+
+# Downloaded binaries (platform-specific, downloaded during setup)
+resources/bin/ffmpeg*
+resources/bin/yt-dlp*

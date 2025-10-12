@@ -1,20 +1,24 @@
 #!/bin/bash
 
-# batch_pack_parallel.sh - Parallel batch process MP3 files to KAI format
-# Processes multiple files simultaneously with optimal memory management
+# batch_pack.sh - Batch process MP3 files in a folder to KAI format
+# Processes all MP3 files that don't already have matching KAI files
 
 set -e
+
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
 
 # Function to show usage
 show_usage() {
     echo "Usage: $0 [OPTIONS] FOLDER"
     echo ""
-    echo "Parallel batch convert MP3 files in FOLDER to KAI karaoke format"
+    echo "Batch convert MP3 files in FOLDER to KAI karaoke format"
     echo "Only processes MP3 files that don't already have matching .kai files"
-    echo ""
-    echo "Parallel Processing Options:"
-    echo "  --workers N            Number of parallel workers (default: 3, max: 8)"
-    echo "  --threads-per-worker N Set threads per worker (default: auto-detect)"
     echo ""
     echo "Options (all kai_pack.sh options are supported):"
     echo "  --whisper-model MODEL  Whisper model size (default: small)"
@@ -42,22 +46,23 @@ show_usage() {
     echo "  --help                 Show this help message"
     echo ""
     echo "Examples:"
-    echo "  $0 /music/albums/                              # Process with 3 workers"
-    echo "  $0 --workers 2 /music/albums/                  # Use 2 parallel workers"
-    echo "  $0 --workers 4 --threads-per-worker 6 /music/  # 4 workers, 6 threads each"
-    echo "  $0 --language auto --fix-lyrics /music/mixed/  # Auto-detect language"
+    echo "  $0 /music/albums/                              # Process all MP3s with defaults"
+    echo "  $0 --language es /music/spanish/               # Spanish transcription"
+    echo "  $0 --language auto /music/mixed/               # Auto-detect language"
+    echo "  $0 --four-stems --whisper-model large /music/  # High quality with 4 stems"
+    echo "  $0 --fix-lyrics --llm-provider openai /music/  # Auto-fix lyrics with OpenAI"
     echo "  $0 --dry-run /music/test/                      # See what would be processed"
-    echo ""
-    echo "Performance Notes:"
-    echo "  - Each worker loads models once and processes multiple files"
-    echo "  - Memory usage: ~3-4GB per worker (Whisper + Demucs models)"
-    echo "  - Recommended workers: 2-4 for systems with 16GB+ RAM"
-    echo "  - Monitor memory usage with: watch -n 1 free -h"
+    echo "  $0 --verbose --gpu /music/albums/              # Verbose output, force GPU"
     echo ""
     echo "Requirements:"
-    echo "  - GNU parallel (install: sudo apt install parallel)"
     echo "  - All kai_pack.sh requirements"
     echo "  - For --fix-lyrics: API key for selected provider"
+    echo ""
+    echo "Notes:"
+    echo "  - Skips files that already have matching .kai files"
+    echo "  - Preserves original MP3 files"
+    echo "  - Processes files in alphabetical order"
+    echo "  - Use Ctrl+C to stop processing at any time"
     exit 1
 }
 
@@ -66,30 +71,12 @@ FOLDER=""
 KAI_PACK_ARGS=""
 DRY_RUN=false
 VERBOSE=false
-WORKERS=3
-THREADS_PER_WORKER=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --help|-h)
             show_usage
-            ;;
-        --workers)
-            WORKERS="$2"
-            if ! [[ "$WORKERS" =~ ^[1-8]$ ]]; then
-                echo "Error: --workers must be between 1 and 8"
-                exit 1
-            fi
-            shift 2
-            ;;
-        --threads-per-worker)
-            THREADS_PER_WORKER="$2"
-            if ! [[ "$THREADS_PER_WORKER" =~ ^[1-9][0-9]*$ ]]; then
-                echo "Error: --threads-per-worker must be a positive integer"
-                exit 1
-            fi
-            shift 2
             ;;
         --dry-run)
             DRY_RUN=true
@@ -134,20 +121,9 @@ if [ -z "$FOLDER" ]; then
     show_usage
 fi
 
-# Expand tilde in folder path
-FOLDER=$(eval echo "$FOLDER")
-
 # Check if folder exists
 if [ ! -d "$FOLDER" ]; then
     echo "Error: Folder '$FOLDER' does not exist"
-    exit 1
-fi
-
-# Check if GNU parallel is available
-if ! command -v parallel &> /dev/null; then
-    echo "Error: GNU parallel is required but not installed"
-    echo "Install with: sudo apt install parallel"
-    echo "Or use the original batch_pack.sh for sequential processing"
     exit 1
 fi
 
@@ -155,44 +131,23 @@ fi
 FOLDER=$(realpath "$FOLDER")
 
 echo "=========================================="
-echo "KAI Parallel Batch Processor"
+echo "KAI Batch Processor"
 echo "=========================================="
 echo "Folder: $FOLDER"
-echo "Workers: $WORKERS"
 echo "Options: $KAI_PACK_ARGS"
 echo ""
 
-# Auto-detect optimal threading if not specified
-if [ -z "$THREADS_PER_WORKER" ]; then
-    TOTAL_CORES=$(nproc)
-    THREADS_PER_WORKER=$((TOTAL_CORES / WORKERS))
-    if [ $THREADS_PER_WORKER -lt 2 ]; then
-        THREADS_PER_WORKER=2
-    fi
-    echo "Auto-detected threads per worker: $THREADS_PER_WORKER (total cores: $TOTAL_CORES)"
-else
-    echo "Using threads per worker: $THREADS_PER_WORKER"
-fi
-
 # Memory optimization setup
-echo "Setting up parallel processing environment..."
-# Set per-worker thread limits
-export OMP_NUM_THREADS=$THREADS_PER_WORKER
-export MKL_NUM_THREADS=$THREADS_PER_WORKER
-export TORCH_NUM_THREADS=$THREADS_PER_WORKER
-
+echo "Setting up memory optimization..."
 # Only set CUDA-specific vars if CUDA is available
-if python3 -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
+if "$PYTHON_PATH" -c "import torch; exit(0 if torch.cuda.is_available() else 1)" 2>/dev/null; then
     echo "  CUDA detected - enabling GPU memory optimizations"
     export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:64
     export CUDA_LAUNCH_BLOCKING=0
     export PYTORCH_NO_CUDA_MEMORY_CACHING=0
 else
-    echo "  CPU mode - optimizing for parallel CPU processing"
+    echo "  CPU mode - skipping GPU optimizations"
 fi
-
-echo "  Threads per worker: $THREADS_PER_WORKER"
-echo "  Total parallel threads: $((WORKERS * THREADS_PER_WORKER))"
 
 # Find all MP3 files (portable method for older bash/zsh compatibility)
 MP3_FILES=()
@@ -253,130 +208,75 @@ done
 
 if [ "$DRY_RUN" = true ]; then
     echo ""
-    echo "DRY RUN: Would process ${#TO_PROCESS[@]} files with $WORKERS parallel workers"
-    echo "Commands that would be executed in parallel:"
+    echo "DRY RUN: Would process ${#TO_PROCESS[@]} files"
+    echo "Commands that would be executed:"
     for mp3_file in "${TO_PROCESS[@]}"; do
-        echo "  ./kai_pack.sh $KAI_PACK_ARGS \"$mp3_file\""
+        echo "  ./cli/kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
     done
-    echo ""
-    echo "Estimated memory usage: $((WORKERS * 4))GB (${WORKERS} workers × ~4GB per worker)"
-    echo "Estimated speedup: ${WORKERS}x faster than sequential processing"
     exit 0
 fi
 
 echo ""
 echo "=========================================="
-echo "Starting parallel batch processing..."
-echo "Workers: $WORKERS | Threads per worker: $THREADS_PER_WORKER"
+echo "Starting batch processing..."
 echo "=========================================="
 
-# Create a temporary file list for parallel processing
-TEMP_LIST=$(mktemp)
-printf '%s\n' "${TO_PROCESS[@]}" > "$TEMP_LIST"
-
-# Create wrapper script for parallel execution that reads args from environment
-WRAPPER_SCRIPT=$(mktemp)
-cat > "$WRAPPER_SCRIPT" << EOF
-#!/bin/bash
-mp3_file="\$1"
-base_name=\$(basename "\$mp3_file")
-
-# Show progress
-echo "[\$\$ - \$(date '+%H:%M:%S')] Processing: \$base_name"
-
-# Clear GPU memory before processing (if CUDA available)
-python3 -c "import torch; import gc; gc.collect(); torch.cuda.empty_cache() if torch.cuda.is_available() else None" 2>/dev/null || true
-
-# Execute kai_pack.sh with the args from the main script
-start_time=\$(date +%s)
-
-if ./kai_pack.sh $KAI_PACK_ARGS "\$mp3_file"; then
-    end_time=\$(date +%s)
-    duration=\$((end_time - start_time))
-    echo "[\$\$ - \$(date '+%H:%M:%S')] ✓ \$base_name completed (\${duration}s)"
-    exit 0
-else
-    echo "[\$\$ - \$(date '+%H:%M:%S')] ✗ \$base_name failed"
-
-    # Log failure to lyric_errors.txt (with file locking)
-    (
-        flock -x 200
-        {
-            echo ""
-            echo "[\$(date '+%Y-%m-%d %H:%M:%S')] Parallel Batch Processing Failure:"
-            echo "File: \$mp3_file"
-            echo "Command: ./kai_pack.sh $KAI_PACK_ARGS \"\$mp3_file\""
-            echo "Worker PID: \$\$"
-            echo "\$(printf '%s' '-' | head -c 50)"
-        } >> lyric_errors.txt
-    ) 200>>lyric_errors.txt
-
-    exit 1
-fi
-EOF
-
-chmod +x "$WRAPPER_SCRIPT"
-
-# Run parallel processing with progress bar
-echo "Processing ${#TO_PROCESS[@]} files with $WORKERS parallel workers..."
-echo ""
-
-# Use GNU parallel to process files
-if [ "$VERBOSE" = true ]; then
-    parallel_args="--jobs $WORKERS --ungroup"
-else
-    parallel_args="--jobs $WORKERS --ungroup"
-fi
-
-start_time_total=$(date +%s)
-
-if parallel $parallel_args "$WRAPPER_SCRIPT" :::: "$TEMP_LIST"; then
-    PARALLEL_EXIT_CODE=0
-else
-    PARALLEL_EXIT_CODE=$?
-fi
-
-end_time_total=$(date +%s)
-total_duration=$((end_time_total - start_time_total))
-
-# Count results
+# Process files
 SUCCESS_COUNT=0
 FAILED_COUNT=0
 FAILED_FILES=()
 
-for mp3_file in "${TO_PROCESS[@]}"; do
-    base_name=$(basename "$mp3_file" .mp3)
-    kai_file="${mp3_file%.mp3}.kai"
+for i in "${!TO_PROCESS[@]}"; do
+    mp3_file="${TO_PROCESS[$i]}"
+    base_name=$(basename "$mp3_file")
 
-    if [ -f "$kai_file" ]; then
+    echo ""
+    echo "[$((i+1))/${#TO_PROCESS[@]}] Processing: $base_name"
+    echo "----------------------------------------"
+
+    # Build kai_pack command
+    KAI_PACK_CMD="./cli/kai_pack.sh$KAI_PACK_ARGS \"$mp3_file\""
+
+    if [ "$VERBOSE" = true ]; then
+        echo "Running: $KAI_PACK_CMD"
+        echo ""
+    fi
+
+    # Clear GPU memory before processing (if CUDA available)
+    "$PYTHON_PATH" -c "import torch; import gc; gc.collect(); torch.cuda.empty_cache() if torch.cuda.is_available() else None" 2>/dev/null || true
+
+    # Execute kai_pack.sh
+    start_time=$(date +%s)
+    if eval $KAI_PACK_CMD; then
+        end_time=$(date +%s)
+        duration=$((end_time - start_time))
+        echo "✓ Success! (${duration}s)"
         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
     else
+        echo "✗ Failed!"
         FAILED_COUNT=$((FAILED_COUNT + 1))
         FAILED_FILES+=("$base_name")
+
+        # Log failure to lyric_errors.txt
+        {
+            echo ""
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Batch Processing Failure:"
+            echo "File: $mp3_file"
+            echo "Command: $KAI_PACK_CMD"
+            echo "Exit code: $?"
+            echo "$(printf '%s' '-' | head -c 50)"
+        } >> lyric_errors.txt
     fi
 done
 
-# Cleanup temporary files
-rm -f "$TEMP_LIST" "$WRAPPER_SCRIPT"
-
 echo ""
 echo "=========================================="
-echo "Parallel batch processing complete!"
+echo "Batch processing complete!"
 echo "=========================================="
 echo "Results:"
 echo "  Successful: $SUCCESS_COUNT"
 echo "  Failed: $FAILED_COUNT"
 echo "  Total processed: ${#TO_PROCESS[@]}"
-echo "  Total time: ${total_duration}s"
-echo "  Workers used: $WORKERS"
-
-if [ $SUCCESS_COUNT -gt 0 ]; then
-    avg_time_per_file=$((total_duration / SUCCESS_COUNT))
-    echo "  Average time per file: ${avg_time_per_file}s"
-    estimated_sequential_time=$((avg_time_per_file * SUCCESS_COUNT))
-    speedup=$(echo "scale=1; $estimated_sequential_time / $total_duration" | bc -l 2>/dev/null || echo "~${WORKERS}")
-    echo "  Estimated speedup: ${speedup}x"
-fi
 
 if [ $FAILED_COUNT -gt 0 ]; then
     echo ""
@@ -386,17 +286,14 @@ if [ $FAILED_COUNT -gt 0 ]; then
     done
     echo ""
     echo "You can retry failed files individually with:"
-    echo "  ./kai_pack.sh [OPTIONS] \"path/to/file.mp3\""
-    echo ""
-    echo "Or retry with fewer workers:"
-    echo "  $0 --workers $((WORKERS - 1)) \"$FOLDER\""
+    echo "  ./cli/kai_pack.sh [OPTIONS] \"path/to/file.mp3\""
 fi
 
 echo ""
 echo "Next steps:"
-echo "  - View lyrics: ./log_kai_lyrics.sh \"file.kai\""
-echo "  - Create videos: ./make_movie.sh \"file.kai\""
-echo "  - Batch create videos: find \"$FOLDER\" -name \"*.kai\" -exec ./make_movie.sh {} \\;"
+echo "  - View lyrics: ./cli/log_kai_lyrics.sh \"file.kai\""
+echo "  - Create videos: ./cli/make_movie.sh \"file.kai\""
+echo "  - Batch create videos: find \"$FOLDER\" -name \"*.kai\" -exec ./cli/make_movie.sh {} \\;"
 
 if [ $FAILED_COUNT -gt 0 ]; then
     exit 1

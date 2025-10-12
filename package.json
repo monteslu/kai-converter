@@ -1,0 +1,196 @@
+{
+  "name": "kai-converter",
+  "version": "0.1.0",
+  "description": "AI-powered karaoke file creator with source separation and lyrics transcription",
+  "main": "electron/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "wait-on http://localhost:5174 && electron . --no-sandbox",
+    "dev:all": "concurrently --kill-others \"npm run dev\" \"npm run dev:electron\"",
+    "setup:python": "node scripts/setup-python.js",
+    "setup:binaries": "node scripts/setup-binaries.js",
+    "setup:all": "npm run setup:python && npm run setup:binaries",
+    "build": "vite build",
+    "build:python": "node scripts/build-python.js",
+    "build:linux": "npm run build && electron-builder --linux",
+    "build:win": "npm run build && electron-builder --win",
+    "build:mac": "npm run build && electron-builder --mac",
+    "build:all": "npm run build && electron-builder -mwl",
+    "package:win": "npm run build:win",
+    "package:mac": "npm run build:mac",
+    "package:linux": "npm run build:linux",
+    "package:all": "npm run build:all",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "keywords": [
+    "karaoke",
+    "ai",
+    "whisper",
+    "demucs",
+    "electron",
+    "lyrics",
+    "transcription"
+  ],
+  "author": "KAI Converter",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.37.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3",
+    "eslint": "^9.37.0",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.0",
+    "postcss": "^8.4.41",
+    "tailwindcss": "^3.4.10",
+    "tar": "^7.5.1",
+    "vite": "^5.4.2",
+    "wait-on": "^8.0.0"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "build": {
+    "appId": "com.kai.converter",
+    "productName": "KAI_Converter",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/dist/**/*",
+      "resources/**/*",
+      "com.kai.converter.desktop",
+      "com.kai.converter.metainfo.xml"
+    ],
+    "extraResources": [
+      {
+        "from": "python-standalone",
+        "to": "python",
+        "filter": [
+          "**/*",
+          "!**/nvidia/**",
+          "!**/torch/**",
+          "!**/torch-*.dist-info/**",
+          "!**/torchaudio/**",
+          "!**/torchaudio-*.dist-info/**",
+          "!**/torchvision/**",
+          "!**/torchvision-*.dist-info/**",
+          "!**/triton/**",
+          "!**/triton-*.dist-info/**",
+          "!**/demucs/**",
+          "!**/demucs-*.dist-info/**",
+          "!**/whisper/**",
+          "!**/openai_whisper-*.dist-info/**"
+        ]
+      },
+      {
+        "from": "src",
+        "to": "python-src",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "artifactName": "${productName}-${version}-windows-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "category": "public.app-category.music",
+      "artifactName": "${productName}-${version}-macos-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "flatpak",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.png",
+      "category": "AudioVideo",
+      "desktop": {
+        "entry": {
+          "Name": "KAI Converter",
+          "Comment": "AI-powered karaoke file creator with source separation and lyrics transcription",
+          "Categories": "AudioVideo;Audio;AudioVideoEditing;"
+        }
+      },
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
+    },
+    "flatpak": {
+      "runtime": "org.freedesktop.Platform",
+      "runtimeVersion": "24.08",
+      "sdk": "org.freedesktop.Sdk",
+      "base": "org.electronjs.Electron2.BaseApp",
+      "baseVersion": "24.08",
+      "files": [
+        [
+          "com.kai.converter.metainfo.xml",
+          "/share/metainfo/com.kai.converter.metainfo.xml"
+        ],
+        [
+          "resources/icon-512.png",
+          "/share/icons/hicolor/512x512/apps/com.kai.converter.png"
+        ]
+      ],
+      "finishArgs": [
+        "--socket=wayland",
+        "--socket=x11",
+        "--share=ipc",
+        "--device=dri",
+        "--socket=pulseaudio",
+        "--filesystem=home",
+        "--share=network",
+        "--talk-name=org.freedesktop.Notifications"
+      ]
+    }
+  }
+}

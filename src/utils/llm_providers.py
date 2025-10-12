@@ -40,36 +40,42 @@ class OpenAIProvider(LLMProvider):
         response = self.client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=temperature
+            temperature=temperature,
+            max_tokens=16384  # GPT-4o API supports up to 16,384 output tokens
         )
         return response.choices[0].message.content
 
 class LMStudioProvider(LLMProvider):
     """Local LM Studio provider (OpenAI-compatible API)."""
-    
+
     def __init__(self, base_url: str = "http://localhost:1234", api_key: str = "lm-studio"):
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
-    
+        self.last_model_used = None  # Track actual model used
+
     def complete_chat(self, messages: list, model: str = "local-model", temperature: float = 0.1) -> str:
         url = f"{self.base_url}/v1/chat/completions"
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json"
         }
-        
+
         data = {
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 4000
+            "max_tokens": 16000  # High limit for local models (no cost concern, prevents truncation)
         }
-        
+
         try:
-            response = requests.post(url, headers=headers, json=data, timeout=120)
+            response = requests.post(url, headers=headers, json=data, timeout=300)  # 5 min for slower local models
             response.raise_for_status()
-            
+
             result = response.json()
+
+            # Capture the actual model used by the server
+            self.last_model_used = result.get("model", model)
+
             return result["choices"][0]["message"]["content"]
         except requests.exceptions.HTTPError as e:
             print(f"HTTP Error {response.status_code}: {response.reason}")
@@ -125,7 +131,7 @@ class AnthropicProvider(LLMProvider):
             model=model,
             system=system_message,
             messages=user_messages,
-            max_tokens=4000,
+            max_tokens=4096,  # Anthropic API maximum
             temperature=temperature
         )
         
@@ -195,10 +201,10 @@ class OpenAICompatibleProvider(LLMProvider):
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 4000
+            "max_tokens": 16000  # High limit for OpenAI-compatible APIs (usually local)
         }
-        
-        response = requests.post(url, headers=headers, json=data, timeout=120)
+
+        response = requests.post(url, headers=headers, json=data, timeout=300)  # 5 min for slower models
         response.raise_for_status()
         
         result = response.json()

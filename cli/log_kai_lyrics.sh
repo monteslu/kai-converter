@@ -3,6 +3,14 @@
 # log_kai_lyrics.sh - Display lyrics from a KAI file
 # Wrapper for the Python lyrics logger
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # If no arguments provided, show usage
 if [ $# -eq 0 ]; then
     echo "Usage: $0 INPUT.kai"
@@ -37,4 +45,4 @@ if [ ! -f "$1" ]; then
     exit 1
 fi
 
-python3 "$(dirname "$0")/src/utils/log_kai_lyrics.py" "$@"
+"$PYTHON_PATH" "${PROJECT_ROOT}/src/utils/log_kai_lyrics.py" "$@"

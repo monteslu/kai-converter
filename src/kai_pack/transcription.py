@@ -51,7 +51,7 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
             "word_timestamps": True,
             "language": "en",  # Force English
             "task": "transcribe",
-            "verbose": False,
+            "verbose": True,  # Enable progress output to stderr
             "condition_on_previous_text": False  # Reduces repetition loops in singing
         }
 
@@ -581,7 +581,7 @@ class LyricsTranscriber:
                 "word_timestamps": True,
                 "language": None if self.language == "auto" else self.language,
                 "task": "transcribe",
-                "verbose": False,
+                "verbose": True,  # Enable progress output to stderr
                 "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
                 "condition_on_previous_text": False  # Reduces repetition loops in singing
             }
@@ -606,7 +606,7 @@ class LyricsTranscriber:
                     "word_timestamps": False,
                     "language": None if self.language == "auto" else self.language,
                     "task": "transcribe",
-                    "verbose": False,
+                    "verbose": True,  # Enable progress output to stderr
                     "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
                     "condition_on_previous_text": False  # Reduces repetition loops in singing
                 }
@@ -654,7 +654,7 @@ class LyricsTranscriber:
                 "word_timestamps": True,
                 "language": None if self.language == "auto" else self.language,
                 "task": "transcribe",
-                "verbose": False,
+                "verbose": True,  # Enable progress output to stderr
                 "no_speech_threshold": 0.3,  # Lower threshold to catch more vocals (default 0.6)
                 "condition_on_previous_text": False  # Reduces repetition loops in singing
             }

@@ -3,7 +3,7 @@
 import logging
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 
 import torch
 import torchaudio
@@ -57,21 +57,21 @@ class StemSeparator:
         logger.info(f"Model sources: {self.source_names}")
         
     def separate_stems(
-        self, 
-        audio: np.ndarray, 
+        self,
+        audio: np.ndarray,
         sample_rate: int,
         num_stems: int = 2
     ) -> Dict[str, np.ndarray]:
         """
         Separate audio into stems using Demucs.
-        
+
         Args:
             audio: stereo audio array (2, samples)
             sample_rate: audio sample rate
             num_stems: number of stems to output (2 or 4). Default is 2.
                       2 = vocals + music
                       4 = vocals + drums + bass + other
-            
+
         Returns:
             Dict mapping stem names to audio arrays
         """
@@ -93,6 +93,7 @@ class StemSeparator:
         audio_tensor = audio_tensor.to(self.device)
         
         # Apply the model
+        # Enable tqdm progress bars - python-bridge will parse stderr for progress updates
         with torch.no_grad():
             sources = apply_model(
                 self.model,
@@ -101,7 +102,7 @@ class StemSeparator:
                 shifts=1,
                 split=True,
                 overlap=self.overlap,
-                progress=True
+                progress=True  # Enable tqdm - python-bridge parses stderr for % updates
             )
             
         # Convert back to original sample rate if needed

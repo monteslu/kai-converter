@@ -46,8 +46,17 @@ def fetch_lyrics_from_lrclib(title: str, artist: str) -> Optional[str]:
         return None
 
 
-def extract_vocabulary_hints(lyrics: str) -> str:
-    """Extract meaningful vocabulary words from lyrics for Whisper context."""
+def extract_vocabulary_hints(lyrics: str, max_vocab_tokens: int = 150) -> str:
+    """
+    Extract meaningful vocabulary words from lyrics for Whisper context.
+
+    Args:
+        lyrics: Full lyrics text
+        max_vocab_tokens: Maximum tokens available for vocabulary hints
+
+    Returns:
+        Comma-separated list of vocabulary words fitting within token budget
+    """
     if not lyrics:
         return ""
 
@@ -97,11 +106,7 @@ def extract_vocabulary_hints(lyrics: str) -> str:
         remaining_slots = 15 - len(all_candidates)
         all_candidates.extend(single_words[:remaining_slots])
 
-    # Estimate tokens and trim to fit Whisper's 224-token limit with safety buffer
-    # Reserve ~50 tokens for base prompt + 20 token safety buffer = 70 tokens reserved
-    # Whisper limit: 224 - 70 reserved = 154 tokens available for vocabulary
-    max_vocab_tokens = 150
-
+    # Fill vocabulary list up to the provided token budget
     selected_words = []
     estimated_tokens = 0
 
@@ -143,7 +148,7 @@ def fetch_lyrics_from_url(url: str) -> Optional[str]:
         return None
 
 
-def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None) -> Tuple[Optional[str], Optional[str]]:
+def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None, reference_lyrics: str = None) -> Tuple[Optional[str], Optional[str]]:
     """
     Prepare Whisper initial_prompt with LRCLIB vocabulary enhancement.
 
@@ -151,6 +156,7 @@ def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None
         title: Song title
         artist: Artist name
         lyrics_url: Optional direct LRCLIB URL (e.g., https://lrclib.net/api/get/123456)
+        reference_lyrics: Optional pre-fetched lyrics text (avoids redundant LRCLIB lookup)
 
     Returns:
         tuple: (initial_prompt, lyrics_temp_file_path)
@@ -158,15 +164,29 @@ def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None
     vocabulary_hints = ""
     lyrics_temp_file = None
 
-    # Try to fetch lyrics - either from URL or search
-    lyrics = None
-    if lyrics_url:
-        lyrics = fetch_lyrics_from_url(lyrics_url)
-    elif title and artist:
-        lyrics = fetch_lyrics_from_lrclib(title, artist)
+    # Try to use provided lyrics first, otherwise fetch
+    lyrics = reference_lyrics
+    if not lyrics:
+        # Try to fetch lyrics - either from URL or search
+        if lyrics_url:
+            lyrics = fetch_lyrics_from_url(lyrics_url)
+        elif title and artist:
+            lyrics = fetch_lyrics_from_lrclib(title, artist)
 
     if lyrics:
-        vocabulary_hints = extract_vocabulary_hints(lyrics)
+        # Calculate available tokens for vocabulary hints
+        # Whisper limit: 224 tokens total
+        # Reserve 30 tokens for safety buffer
+        # Simple format: "{title}. {vocabulary_hints}"
+        base_prompt = f"{title}. " if title else ""
+
+        # Rough token estimate: 1 token per 4 characters (conservative)
+        base_tokens = len(base_prompt) // 4 + 2  # +2 for extra safety on title
+        safety_buffer = 30
+        max_vocab_tokens = 224 - base_tokens - safety_buffer
+
+        # Extract vocabulary with calculated budget
+        vocabulary_hints = extract_vocabulary_hints(lyrics, max_vocab_tokens=max_vocab_tokens)
 
         # Save lyrics to temp file for potential fix_lyrics usage
         try:
@@ -183,14 +203,24 @@ def prepare_whisper_context(title: str, artist: str = "", lyrics_url: str = None
     initial_prompt = None
     if title:
         if vocabulary_hints:
-            initial_prompt = f"This song is called {title}. Song vocabulary includes: {vocabulary_hints}"
+            initial_prompt = f"{title}. {vocabulary_hints}"
+
+            # Calculate and log token estimates
+            vocab_tokens = len(vocabulary_hints) // 4 + len(vocabulary_hints.split(', '))  # words + separators
+            total_tokens = base_tokens + vocab_tokens
+
+            logger.info(f"Whisper prompt token breakdown:")
+            logger.info(f"  Base prompt tokens: {base_tokens}")
+            logger.info(f"  Vocabulary tokens: {vocab_tokens}")
+            logger.info(f"  Total estimated: {total_tokens} / 224 (safety buffer: {safety_buffer})")
+            logger.info(f"Full prompt: {initial_prompt}")
         else:
-            initial_prompt = f"This song is called {title}"
-        logger.info(f"Using initial prompt: {initial_prompt}")
+            initial_prompt = title
+            logger.info(f"Using initial prompt (no vocabulary): {initial_prompt}")
     elif artist:
         # Fallback to artist only if no title available
-        initial_prompt = f"This is a song by {artist}"
-        logger.info(f"Using initial prompt: {initial_prompt}")
+        initial_prompt = artist
+        logger.info(f"Using initial prompt (artist only): {initial_prompt}")
 
     return initial_prompt, lyrics_temp_file
 

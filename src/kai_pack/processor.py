@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class KaiProcessor:
     """Main processor that orchestrates the complete KAI-Pack pipeline."""
-    
+
     def __init__(
         self,
         sample_rate: int = 44100,
@@ -35,16 +35,20 @@ class KaiProcessor:
         whisper_model: str = "base",
         language: str = "en",
         lyrics_url: Optional[str] = None,
+        reference_lyrics: Optional[str] = None,
         use_crepe_filter: bool = False,
         silence_threshold: int = -20,
         vocal_pitch_type: str = "midi_cents",
-        verbose: bool = False
+        verbose: bool = False,
+        progress_callback: Optional[Any] = None
     ):
         self.sample_rate = sample_rate
         self.model_name = model_name
         self.verbose = verbose
         self.language = language
         self.lyrics_url = lyrics_url
+        self.reference_lyrics = reference_lyrics
+        self.progress_callback = progress_callback
 
         # Initialize components
         self.audio_processor = AudioProcessor(sample_rate=sample_rate)
@@ -69,6 +73,43 @@ class KaiProcessor:
         )
         self.song_json_generator = SongJsonGenerator()
         self.packager = KaiPackager()
+
+    def _emit_progress(self, step: int, total: int, message: str, sub_progress: float = 0.0) -> None:
+        """Emit progress update if callback is registered.
+
+        Args:
+            step: Current processing step (1-9)
+            total: Total number of steps (usually 9)
+            message: Progress message describing current operation
+            sub_progress: Progress within current step (0.0 to 1.0)
+        """
+        if self.progress_callback:
+            try:
+                # Calculate percentage based on step
+                # Give more weight to time-intensive steps (separation, transcription)
+                step_weights = {
+                    1: 5,   # Loading audio
+                    2: 2,   # Extracting metadata
+                    3: 35,  # Stem separation (time-intensive)
+                    4: 40,  # Lyrics transcription (time-intensive)
+                    5: 8,   # Musical analysis (optional)
+                    6: 5,   # Encoding MP3 stems
+                    7: 2,   # Generating song.json
+                    8: 1,   # Saving features
+                    9: 2    # Packaging KAI file
+                }
+
+                # Calculate cumulative percentage up to current step
+                completed_weight = sum(step_weights.get(i, 0) for i in range(1, step))
+
+                # Add sub-progress within current step
+                current_step_weight = step_weights.get(step, 0)
+                percent = completed_weight + (current_step_weight * sub_progress)
+
+                stage = f"step_{step}"
+                self.progress_callback(stage, percent, message)
+            except Exception as e:
+                logger.warning(f"Progress callback error: {e}")
         
     def process(
         self,
@@ -112,31 +153,33 @@ class KaiProcessor:
             
             try:
                 # Step 1: Load and preprocess audio
+                self._emit_progress(1, 9, "Loading and preprocessing audio...")
                 logger.info("=" * 60)
                 logger.info("STEP 1/9: LOADING AND PREPROCESSING AUDIO")
                 logger.info("=" * 60)
                 logger.info(f"Input file: {input_audio}")
                 logger.info(f"Target sample rate: {self.sample_rate} Hz")
-                
+
                 start_step = datetime.utcnow()
                 audio_data, audio_info = self.audio_processor.load_and_preprocess(input_audio)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
                 logger.info(f"✓ Audio loaded: {audio_info['duration_seconds']:.1f}s, {audio_info['original_channels']} channels")
                 logger.info(f"✓ Step 1 completed in {step_time:.1f}s")
                 
                 # Step 2: Extract metadata
+                self._emit_progress(2, 9, "Extracting metadata...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 2/9: EXTRACTING METADATA")
                 logger.info("=" * 60)
-                
+
                 start_step = datetime.utcnow()
                 metadata = self.metadata_extractor.extract_metadata(
-                    input_audio, 
+                    input_audio,
                     overrides=metadata_overrides
                 )
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
                 logger.info(f"✓ Title: {metadata['song'].get('title', 'Unknown')}")
                 logger.info(f"✓ Artist: {metadata['song'].get('artist', 'Unknown')}")
                 logger.info(f"✓ Step 2 completed in {step_time:.1f}s")
@@ -149,17 +192,25 @@ class KaiProcessor:
                 })
                 
                 # Step 3: Stem separation
+                device_info = f" on {self.stem_separator.device.upper()}"
+                self._emit_progress(3, 9, f"Separating stems with Demucs{device_info}...", 0.0)
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 3/9: PERFORMING STEM SEPARATION (DEMUCS)")
                 logger.info("=" * 60)
                 logger.info(f"Model: {self.model_name}")
                 logger.info(f"Device: {self.stem_separator.device}")
                 logger.info("Separating into: vocals, drums, bass, other")
-                
+
                 start_step = datetime.utcnow()
+
+                # Demucs doesn't support progress callbacks, so we just show a steady message
+                # The UI will see "Separating stems with Demucs on CUDA..." throughout this phase
                 stems = self.stem_separator.separate_stems(audio_data, self.sample_rate)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
+                # Emit completion of stem separation
+                self._emit_progress(3, 9, f"✓ Stem separation complete{device_info}", 1.0)
+
                 logger.info(f"✓ Stems separated: {', '.join(stems.keys())}")
                 for stem_name, stem_audio in stems.items():
                     logger.info(f"  - {stem_name}: {stem_audio.shape}")
@@ -194,59 +245,82 @@ class KaiProcessor:
                         logger.info("  ✓ Using 2-stem mode: vocals + music only")
                     
                 # Step 4: Automatic lyrics transcription and alignment
+                whisper_device = self.lyrics_transcriber.device if hasattr(self.lyrics_transcriber, 'device') else 'unknown'
+                whisper_device_info = f" on {whisper_device.upper()}" if whisper_device != 'unknown' else ""
+                self._emit_progress(4, 9, f"Transcribing lyrics with Whisper{whisper_device_info}...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 4/9: AI LYRICS TRANSCRIPTION (WHISPER FULL AUDIO)")
                 logger.info("=" * 60)
-                
+
                 vocals_audio = stems.get("vocals")
                 if vocals_audio is None:
                     raise ValueError("No vocals stem found for transcription")
-                
+
                 logger.info(f"Whisper model: {self.lyrics_transcriber.model_name}")
                 logger.info(f"Vocals audio shape: {vocals_audio.shape}")
 
                 # Prepare Whisper context with LRCLIB vocabulary hints
                 title = metadata['song'].get('title', '')
                 artist = metadata['song'].get('artist', '')
-                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url)
+
+                # Emit LRCLIB lookup progress (only if we need to fetch)
+                if not self.reference_lyrics:
+                    self._emit_progress(4, 9, f"Looking up lyrics for '{title}' on LRCLIB...", 0.1)
+                else:
+                    self._emit_progress(4, 9, f"Using pre-fetched lyrics for Whisper context...", 0.1)
+                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url, self.reference_lyrics)
+
+                # Report LRCLIB lookup result
+                if lyrics_temp_file:
+                    self._emit_progress(4, 9, f"✓ Found reference lyrics - using for Whisper context{whisper_device_info}", 0.2)
+                    logger.info("✓ LRCLIB lookup successful - vocabulary hints prepared")
+                else:
+                    self._emit_progress(4, 9, f"⚠ No reference lyrics found - transcribing without hints{whisper_device_info}", 0.2)
+                    logger.warning("⚠ LRCLIB lookup failed - proceeding without vocabulary hints")
 
                 logger.info("Starting smart chunking and transcription...")
 
                 start_step = datetime.utcnow()
                 alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio, initial_prompt=initial_prompt)
                 step_time = (datetime.utcnow() - start_step).total_seconds()
-                
+
+                # Emit completion of transcription
+                self._emit_progress(4, 9, f"✓ Transcription complete - {len(alignment_data.get('lines', []))} lines{whisper_device_info}", 1.0)
+
                 logger.info(f"✓ Transcription completed:")
                 logger.info(f"  - Lines found: {len(alignment_data.get('lines', []))}")
                 logger.info(f"  - Confidence: {alignment_data.get('confidence', 0.0):.2f}")
                 logger.info(f"  - Language: {alignment_data.get('language', 'unknown')}")
                 logger.info(f"✓ Step 4 completed in {step_time:.1f}s")
                 
-                # Step 5: Musical analysis (if requested)  
+                # Step 5: Musical analysis (if requested)
                 analysis_features = {}
                 if features:
+                    self._emit_progress(5, 9, "Extracting musical features...")
                     logger.info("\n" + "=" * 60)
                     logger.info("STEP 5/9: MUSICAL ANALYSIS (OPTIONAL)")
                     logger.info("=" * 60)
                     logger.info(f"Features requested: {', '.join(features)}")
-                    
+
                     start_step = datetime.utcnow()
                     analysis_features = self.musical_analyzer.extract_features(
                         vocals_audio, audio_data, features
                     )
                     step_time = (datetime.utcnow() - start_step).total_seconds()
-                    
+
                     logger.info(f"✓ Features extracted: {len(analysis_features)}")
                     for feature_name in analysis_features:
                         logger.info(f"  - {feature_name}")
                     logger.info(f"✓ Step 5 completed in {step_time:.1f}s")
                 else:
+                    self._emit_progress(5, 9, "Skipping musical analysis...")
                     logger.info("\n" + "=" * 60)
                     logger.info("STEP 5/9: MUSICAL ANALYSIS (SKIPPED)")
                     logger.info("=" * 60)
                     logger.info("No features requested - skipping analysis")
                     
                 # Step 6: Encode MP3 stems
+                self._emit_progress(6, 9, "Encoding MP3 stems...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 6/9: ENCODING MP3 STEMS")
                 logger.info("=" * 60)
@@ -255,7 +329,7 @@ class KaiProcessor:
                 else:
                     logger.info(f"Vocals bitrate: {vocals_bitrate}")
                     logger.info(f"Other stems bitrate: {stem_bitrate}")
-                
+
                 start_step = datetime.utcnow()
                 stem_mp3_files = {}
                 encoder_delays = {}
@@ -284,11 +358,12 @@ class KaiProcessor:
                 canonical_encoder_delay = encoder_delays.get("vocals", 1105)
                 
                 # Step 7: Generate song.json
+                self._emit_progress(7, 9, "Generating song.json...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 7/9: GENERATING SONG.JSON")
                 logger.info("=" * 60)
                 logger.info("Creating KAI v1.0 descriptor with metadata, timing, and audio info...")
-                
+
                 start_step = datetime.utcnow()
                 
                 # Prepare processing information for meta section
@@ -339,10 +414,11 @@ class KaiProcessor:
                 logger.info(f"✓ Step 7 completed in {step_time:.1f}s")
                     
                 # Step 8: Save features (if any)
+                self._emit_progress(8, 9, "Saving features..." if analysis_features else "Skipping features...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 8/9: SAVING FEATURES (OPTIONAL)")
                 logger.info("=" * 60)
-                
+
                 features_files = {}
                 if analysis_features:
                     start_step = datetime.utcnow()
@@ -351,7 +427,7 @@ class KaiProcessor:
                         analysis_features, features_dir
                     )
                     step_time = (datetime.utcnow() - start_step).total_seconds()
-                    
+
                     logger.info(f"✓ Features saved: {len(features_files)} files")
                     for feature_name in features_files:
                         logger.info(f"  - {feature_name}")
@@ -371,12 +447,13 @@ class KaiProcessor:
                 processing_info["outputs"] = output_hashes
                 
                 # Step 9: Package KAI file
+                self._emit_progress(9, 9, "Packaging KAI file...")
                 logger.info("\n" + "=" * 60)
                 logger.info("STEP 9/9: PACKAGING KAI FILE")
                 logger.info("=" * 60)
                 logger.info(f"Output: {output_path}")
                 logger.info(f"Packaging: song.json + {len(stem_mp3_files)} MP3 stems + optional features")
-                
+
                 start_step = datetime.utcnow()
                 package_info = self.packager.package_kai(
                     output_path=output_path,

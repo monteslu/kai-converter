@@ -521,7 +521,10 @@ class MusicalAnalyzer:
         if MADMOM_AVAILABLE:
             return self._extract_onsets_madmom(audio)
         else:
-            return self._extract_onsets_librosa(audio)
+            raise RuntimeError(
+                "madmom is required for onset detection. "
+                "Install with: pip install madmom"
+            )
             
     def _extract_onsets_madmom(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract onsets using madmom."""
@@ -535,15 +538,11 @@ class MusicalAnalyzer:
                 "method": "madmom-rnn"
             }
         except Exception as e:
-            logger.warning(f"Madmom onset detection failed: {e}, falling back to librosa")
-            return self._extract_onsets_librosa(audio)
-            
-    def _extract_onsets_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract onsets - librosa removed, madmom required for this feature."""
-        raise RuntimeError(
-            "madmom is required for onset detection. "
-            "Install with: pip install madmom"
-        )
+            logger.error(f"Madmom onset detection failed: {e}")
+            raise RuntimeError(
+                "madmom is required for onset detection. "
+                "Install with: pip install madmom"
+            )
         
     def extract_tempo(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract tempo and beat tracking."""
@@ -552,7 +551,10 @@ class MusicalAnalyzer:
         if MADMOM_AVAILABLE:
             return self._extract_tempo_madmom(audio)
         else:
-            return self._extract_tempo_librosa(audio)
+            raise RuntimeError(
+                "madmom is required for tempo detection. "
+                "Install with: pip install madmom"
+            )
             
     def _extract_tempo_madmom(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract tempo using madmom."""
@@ -572,15 +574,11 @@ class MusicalAnalyzer:
                 "method": "madmom-rnn"
             }
         except Exception as e:
-            logger.warning(f"Madmom tempo detection failed: {e}, falling back to librosa")
-            return self._extract_tempo_librosa(audio)
-            
-    def _extract_tempo_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract tempo - librosa removed, madmom required for this feature."""
-        raise RuntimeError(
-            "madmom is required for tempo detection. "
-            "Install with: pip install madmom"
-        )
+            logger.error(f"Madmom tempo detection failed: {e}")
+            raise RuntimeError(
+                "madmom is required for tempo detection. "
+                "Install with: pip install madmom"
+            )
         
     def extract_keys(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract key signature timeline."""
@@ -589,7 +587,10 @@ class MusicalAnalyzer:
         if ESSENTIA_AVAILABLE:
             return self._extract_keys_essentia(audio)
         else:
-            return self._extract_keys_librosa(audio)
+            raise RuntimeError(
+                "essentia is required for key detection. "
+                "Install with: pip install essentia"
+            )
             
     def _extract_keys_essentia(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract keys using Essentia."""
@@ -609,15 +610,11 @@ class MusicalAnalyzer:
                 "method": "essentia-key-extractor"
             }
         except Exception as e:
-            logger.warning(f"Essentia key detection failed: {e}, falling back to librosa")
-            return self._extract_keys_librosa(audio)
-            
-    def _extract_keys_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract keys - librosa removed, essentia required for this feature."""
-        raise RuntimeError(
-            "essentia is required for key detection. "
-            "Install with: pip install essentia"
-        )
+            logger.error(f"Essentia key detection failed: {e}")
+            raise RuntimeError(
+                "essentia is required for key detection. "
+                "Install with: pip install essentia"
+            )
         
     def extract_chords(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract chord progression - feature removed."""

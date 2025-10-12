@@ -5,6 +5,14 @@
 
 set -e
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+
 # Initialize variables
 INCLUDE_VOCALS=false
 KAI_FILE=""
@@ -99,9 +107,9 @@ unzip -q "$KAI_FILE" -d "$TEMP_DIR"
 
 # Read metadata from song.json
 echo "Reading metadata..."
-TITLE=$(python3 -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['title'])")
-ARTIST=$(python3 -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['artist'])")
-DURATION=$(python3 -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['duration_sec'])")
+TITLE=$("$PYTHON_PATH" -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['title'])")
+ARTIST=$("$PYTHON_PATH" -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['artist'])")
+DURATION=$("$PYTHON_PATH" -c "import json; data=json.load(open('$TEMP_DIR/song.json')); print(data['song']['duration_sec'])")
 
 
 echo "Title: $TITLE"
@@ -141,7 +149,7 @@ fi
 
 # Generate drawtext filters for each lyric line
 echo "Generating lyric overlays..."
-python3 -c "
+"$PYTHON_PATH" -c "
 import json
 import sys
 import textwrap

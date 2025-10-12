@@ -3,6 +3,15 @@
 # kai_pack.sh - Convert MP3 to KAI format
 # Wrapper for python3 -m kai_pack
 
+# Load common functions
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+
+# Find bundled Python and setup PATH for bundled binaries
+PYTHON_PATH="$(find_python)"
+PROJECT_ROOT="$(get_project_root)"
+setup_bin_path
+
 # If no arguments provided, show usage
 if [ $# -eq 0 ]; then
     echo "Usage: $0 [OPTIONS] INPUT_AUDIO [OUTPUT.kai]"
@@ -43,8 +52,5 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-# Get the directory where this script is located
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 # Pass all arguments to the Python module with correct PYTHONPATH
-PYTHONPATH="${SCRIPT_DIR}/src:${PYTHONPATH}" python3 -m kai_pack "$@"
+PYTHONPATH="${PROJECT_ROOT}/src:${PYTHONPATH}" "$PYTHON_PATH" -m kai_pack "$@"

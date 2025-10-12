@@ -1,4 +1,14 @@
-"""Lyrics-to-audio alignment using CTC and DTW."""
+"""Lyrics-to-audio alignment using CTC and DTW.
+
+NOTE: This module is currently unused and not imported anywhere in the codebase.
+It was part of an earlier approach to lyrics alignment that was replaced by
+Whisper's built-in word-level timestamps. This file uses librosa which is not
+included in the core dependencies.
+
+If you want to use this module, you'll need to:
+1. Install librosa: pip install librosa>=0.10.0
+2. Import and use the LyricsAligner class in your processing pipeline
+"""
 
 import logging
 import re
