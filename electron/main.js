@@ -1,10 +1,12 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, nativeTheme, shell, dialog } from 'electron';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import Store from 'electron-store';
 import { PythonBridge } from './python-bridge.js';
 import { SystemChecker } from './system-checker.js';
 import { DownloadManager } from './download-manager.js';
+import { setupPython } from './setup-helper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -100,8 +102,165 @@ async function createWindow() {
   });
 }
 
+// Check if Python needs to be set up
+async function checkPythonSetup() {
+  if (isDev) {
+    // In dev mode, just check if python-standalone exists
+    const devPythonPath = join(__dirname, '..', 'python-standalone');
+    const pythonExe = process.platform === 'win32'
+      ? join(devPythonPath, 'python.exe')
+      : join(devPythonPath, 'bin', 'python3');
+
+    if (!existsSync(pythonExe)) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Python Not Found',
+        message: 'Python setup required for development',
+        detail: 'Please run: npm run setup:python',
+        buttons: ['Exit']
+      });
+      app.quit();
+      return false;
+    }
+    return true;
+  }
+
+  // In production, check userData directory
+  const pythonDir = join(app.getPath('userData'), 'python');
+  const pythonExe = process.platform === 'win32'
+    ? join(pythonDir, 'python.exe')
+    : join(pythonDir, 'bin', 'python3');
+
+  if (!existsSync(pythonExe)) {
+    // First run - need to download Python
+    const response = await dialog.showMessageBox({
+      type: 'info',
+      title: 'First Time Setup',
+      message: 'KAI Converter - First Time Setup',
+      detail: 'KAI Converter needs to download Python and AI dependencies (~500MB).\n\nThis only happens once and requires an internet connection.\n\nSetup time: 5-10 minutes',
+      buttons: ['Continue', 'Exit'],
+      defaultId: 0,
+      cancelId: 1
+    });
+
+    if (response.response === 1) {
+      app.quit();
+      return false;
+    }
+
+    // Run setup
+    try {
+      const setupWindow = new BrowserWindow({
+        width: 500,
+        height: 300,
+        resizable: false,
+        title: 'Setting up KAI Converter...',
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      });
+
+      setupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body {
+              font-family: system-ui, -apple-system, sans-serif;
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              background: #f5f5f5;
+            }
+            .container {
+              text-align: center;
+              padding: 40px;
+              background: white;
+              border-radius: 8px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            }
+            h2 { margin: 0 0 20px 0; color: #333; }
+            #status {
+              margin: 20px 0;
+              color: #666;
+              font-size: 14px;
+            }
+            .progress-bar {
+              width: 400px;
+              height: 8px;
+              background: #e0e0e0;
+              border-radius: 4px;
+              overflow: hidden;
+              margin: 20px 0;
+            }
+            .progress-fill {
+              height: 100%;
+              background: linear-gradient(90deg, #4CAF50, #45a049);
+              width: 0%;
+              transition: width 0.3s ease;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h2>Setting up KAI Converter</h2>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress"></div>
+            </div>
+            <div id="status">Initializing...</div>
+          </div>
+        </body>
+        </html>
+      `)}`);
+
+      const requirementsPath = join(process.resourcesPath, 'requirements.txt');
+
+      await setupPython(pythonDir, requirementsPath, (progress) => {
+        setupWindow.webContents.executeJavaScript(`
+          document.getElementById('progress').style.width = '${progress.percent}%';
+          document.getElementById('status').textContent = '${progress.message}';
+        `);
+      });
+
+      setupWindow.close();
+
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'Setup Complete',
+        message: 'Python setup completed successfully!',
+        detail: 'KAI Converter is now ready to use.',
+        buttons: ['OK']
+      });
+
+      return true;
+    } catch (error) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'Setup Failed',
+        message: 'Failed to set up Python',
+        detail: error.message,
+        buttons: ['Exit']
+      });
+      app.quit();
+      return false;
+    }
+  }
+
+  return true;
+}
+
 // App lifecycle
 app.whenReady().then(async () => {
+  // Check and run Python setup if needed
+  const pythonReady = await checkPythonSetup();
+  if (!pythonReady) {
+    return;
+  }
+
   // Initialize bridges now that app is ready
   const bridges = getBridges();
 
@@ -109,28 +268,15 @@ app.whenReady().then(async () => {
   if (!bridges.pythonBridge.pythonPath) {
     console.error('\n❌ FATAL ERROR: Python not found!');
     console.error('   Error:', pythonBridge.initError);
-    console.error('   Please run: npm run setup:python\n');
 
-    // Try to show dialog in dev mode, but don't wait for it
-    if (isDev) {
-      // In dev mode, just exit immediately with error code
-      process.exit(1);
-    } else {
-      // In production, show dialog then exit
-      try {
-        const { dialog } = await import('electron');
-        await dialog.showMessageBox({
-          type: 'error',
-          title: 'Python Not Found',
-          message: 'KAI Converter requires Python to run',
-          detail: bridges.pythonBridge.initError + '\n\nPlease run: npm run setup:python',
-          buttons: ['Exit']
-        });
-      } catch (err) {
-        console.error('Failed to show dialog:', err);
-      }
-      app.quit();
-    }
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Python Error',
+      message: 'Failed to initialize Python',
+      detail: bridges.pythonBridge.initError,
+      buttons: ['Exit']
+    });
+    app.quit();
     return;
   }
 
@@ -454,6 +600,21 @@ ipcMain.handle('update-kai-file', async (event, updates) => {
     return result;
   } catch (error) {
     console.error('KAI file update error:', error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+});
+
+// Extract audio files from KAI for playback
+ipcMain.handle('extract-kai-audio', async (event, filePath) => {
+  try {
+    const bridges = getBridges();
+    const result = await bridges.pythonBridge.extractKaiAudio(filePath);
+    return result;
+  } catch (error) {
+    console.error('KAI audio extraction error:', error);
     return {
       success: false,
       error: error.message,

@@ -47,6 +47,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.0" date="2025-10-12">
+      <description>
+        <p>Major improvements: Download-on-demand Python + Flatpak support</p>
+        <ul>
+          <li>Python now downloads on first run (~90% smaller initial download!)</li>
+          <li>Flatpak builds now working reliably</li>
+          <li>Disabled blockmaps for cleaner releases</li>
+          <li>First-run setup with progress dialog</li>
+          <li>Much faster CI/CD builds</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.8" date="2025-10-12">
       <description>
         <p>Windows build improvements</p>

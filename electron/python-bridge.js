@@ -35,10 +35,8 @@ export class PythonBridge {
 
   /**
    * Get the Python executable path
-   * - Development: use python-standalone (same as production)
-   * - Production: use bundled python-standalone
-   *
-   * This ensures consistency - if it works in dev, it works for users!
+   * - Development: use python-standalone in project directory
+   * - Production: use Python in userData directory (downloaded on first run)
    */
   _getPythonPath() {
     const platform = process.platform;
@@ -53,12 +51,19 @@ export class PythonBridge {
     };
 
     if (app.isPackaged) {
-      // Production: use bundled standalone Python
-      const bundledPython = getStandalonePath(join(process.resourcesPath, 'python'));
-      console.log('[PythonBridge] Using bundled Python:', bundledPython);
-      return bundledPython;
+      // Production: use Python in userData directory
+      const pythonDir = join(app.getPath('userData'), 'python');
+      const pythonPath = getStandalonePath(pythonDir);
+
+      if (existsSync(pythonPath)) {
+        console.log('[PythonBridge] Using Python:', pythonPath);
+        return pythonPath;
+      } else {
+        console.error('[PythonBridge] ❌ Python not found in userData');
+        throw new Error('Python not installed. Please run first-time setup.');
+      }
     } else {
-      // Development: use local standalone Python (same as production!)
+      // Development: use local standalone Python
       const standalonePython = getStandalonePath(join(__dirname, '..', 'python-standalone'));
       if (existsSync(standalonePython)) {
         console.log('[PythonBridge] Using standalone Python:', standalonePython);
@@ -923,6 +928,93 @@ except Exception as e:
           } catch {
             reject(new Error(`Failed to update KAI file: ${error || output}`));
           }
+        }
+      });
+    });
+  }
+
+  /**
+   * Extract audio files from .kai for playback
+   *
+   * @param {string} kaiFilePath - Path to .kai file
+   * @returns {Promise<Object>} Audio files result
+   */
+  async extractKaiAudio(kaiFilePath) {
+    return new Promise((resolve, reject) => {
+      const pythonSrcPath = this._getPythonSrcPath().replace(/\\/g, '\\\\');
+      const escapedKaiPath = kaiFilePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+      const args = [
+        '-c',
+        `
+import sys
+import json
+import zipfile
+import base64
+sys.path.insert(0, '${pythonSrcPath}')
+
+try:
+    with zipfile.ZipFile('${escapedKaiPath}', 'r') as kai_zip:
+        # Get list of all audio files (vocals.mp3, music.mp3, etc.)
+        audio_files = []
+        for filename in kai_zip.namelist():
+            if filename.endswith('.mp3'):
+                audio_data = kai_zip.read(filename)
+                # Encode as base64 for JSON transport
+                encoded = base64.b64encode(audio_data).decode('utf-8')
+                audio_files.append({
+                    'name': filename.replace('.mp3', ''),
+                    'data': encoded
+                })
+
+        result = {
+            'success': True,
+            'audioFiles': audio_files
+        }
+        print(json.dumps(result))
+
+except Exception as e:
+    result = {
+        'success': False,
+        'error': str(e)
+    }
+    print(json.dumps(result), file=sys.stderr)
+    sys.exit(1)
+`
+      ];
+
+      const python = spawn(this.pythonPath, args, {
+        cwd: join(__dirname, '..'),
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: this._getEnvWithBinPath(),
+      });
+
+      let output = '';
+      let error = '';
+
+      python.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      python.stderr.on('data', (data) => {
+        error += data.toString();
+      });
+
+      python.on('close', (code) => {
+        if (code === 0) {
+          try {
+            const result = JSON.parse(output.trim());
+            // Decode base64 audio data back to Buffer
+            result.audioFiles = result.audioFiles.map(file => ({
+              name: file.name,
+              data: Buffer.from(file.data, 'base64')
+            }));
+            resolve(result);
+          } catch (e) {
+            reject(new Error(`Failed to parse audio extraction result: ${e.message}`));
+          }
+        } else {
+          reject(new Error(`Failed to extract KAI audio: ${error || output}`));
         }
       });
     });

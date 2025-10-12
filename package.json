@@ -1,6 +1,6 @@
 {
   "name": "kai-converter",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "AI-powered karaoke file creator with source separation and lyrics transcription",
   "main": "electron/main.js",
   "type": "module",
@@ -71,31 +71,19 @@
     ],
     "extraResources": [
       {
-        "from": "python-standalone",
-        "to": "python",
-        "filter": [
-          "**/*",
-          "!**/nvidia/**",
-          "!**/torch/**",
-          "!**/torch-*.dist-info/**",
-          "!**/torchaudio/**",
-          "!**/torchaudio-*.dist-info/**",
-          "!**/torchvision/**",
-          "!**/torchvision-*.dist-info/**",
-          "!**/triton/**",
-          "!**/triton-*.dist-info/**",
-          "!**/demucs/**",
-          "!**/demucs-*.dist-info/**",
-          "!**/whisper/**",
-          "!**/openai_whisper-*.dist-info/**"
-        ]
-      },
-      {
         "from": "src",
         "to": "python-src",
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "scripts/setup-python.js",
+        "to": "setup-python.js"
+      },
+      {
+        "from": "requirements.txt",
+        "to": "requirements.txt"
       }
     ],
     "win": {
@@ -116,6 +104,12 @@
       "icon": "resources/icon.png",
       "artifactName": "${productName}-${version}-windows-${arch}.${ext}"
     },
+    "nsis": {
+      "differentialPackage": false
+    },
+    "portable": {
+      "differentialPackage": false
+    },
     "mac": {
       "target": [
         {
@@ -129,6 +123,9 @@
       "icon": "resources/icon.png",
       "category": "public.app-category.music",
       "artifactName": "${productName}-${version}-macos-${arch}.${ext}"
+    },
+    "dmg": {
+      "writeUpdateInfo": false
     },
     "linux": {
       "target": [
@@ -150,6 +147,9 @@
       "icon": "resources/icon.png",
       "category": "AudioVideo",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
+    },
+    "appImage": {
+      "differentialPackage": false
     },
     "flatpak": {
       "runtime": "org.freedesktop.Platform",
