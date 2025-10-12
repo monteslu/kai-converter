@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=KAI Converter
+Exec=kai-converter %U
+Terminal=false
+Type=Application
+Icon=com.kai.converter
+StartupWMClass=KAI Converter
+Comment=AI-powered karaoke file creator with source separation and lyrics transcription
+Categories=AudioVideo;Audio;AudioVideoEditing;
+MimeType=audio/mpeg;audio/flac;audio/wav;audio/ogg;
+Keywords=karaoke;audio;conversion;ai;lyrics;transcription;

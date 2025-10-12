@@ -9,7 +9,7 @@ import SetupWizard from './components/SetupWizard';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState('convert');
-  const [theme, setTheme] = useState('light');
+  const [_theme, setTheme] = useState('light');
   const [setupComplete, setSetupComplete] = useState(false);
 
   // Initialize theme from system
@@ -80,8 +80,6 @@ export default function App() {
     { id: 'settings', label: '⚙️ Settings', component: SettingsScreen },
     { id: 'about', label: 'ℹ️ About', component: AboutScreen },
   ];
-
-  const ActiveComponent = tabs.find((tab) => tab.id === currentTab)?.component;
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900">

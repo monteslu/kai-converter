@@ -296,7 +296,6 @@ finally:
       // Track active process
       this.activeProcesses.add(python);
 
-      let outputBuffer = '';
       let errorBuffer = '';
       let lastDemucsPercent = 0;
       let stemCounter = 0;
@@ -304,7 +303,6 @@ finally:
 
       python.stdout.on('data', (data) => {
         const text = data.toString();
-        outputBuffer += text;
 
         // Parse progress updates
         const lines = text.split('\n');
@@ -489,7 +487,7 @@ except Exception as e:
               console.error('Metadata extraction failed:', result.error);
             }
             resolve(result);
-          } catch (e) {
+          } catch {
             console.error('Failed to parse metadata output:', output);
             resolve({
               success: false,
@@ -572,7 +570,7 @@ except Exception as e:
         if (code === 0 && output.trim()) {
           try {
             resolve(JSON.parse(output.trim()));
-          } catch (e) {
+          } catch {
             resolve({
               success: false,
               error: 'Failed to parse response',
@@ -670,7 +668,7 @@ print(json.dumps(result))
         if (code === 0) {
           try {
             resolve(JSON.parse(output.trim()));
-          } catch (e) {
+          } catch {
             resolve({
               available: false,
               error: 'Failed to parse Python output',
@@ -1058,7 +1056,7 @@ except Exception as e:
           try {
             const errorResult = JSON.parse(error.trim());
             reject(errorResult);
-          } catch (e) {
+          } catch {
             reject({
               error: error || output || `Process exited with code ${code}`,
               error_type: 'ProcessError'

@@ -48,7 +48,7 @@ export class SystemChecker {
   /**
    * Check if Demucs model is downloaded
    */
-  _checkDemucsModel(modelName = 'htdemucs_ft') {
+  _checkDemucsModel(_modelName = 'htdemucs_ft') {
     // Demucs stores models in torch hub cache
     const torchCache = join(homedir(), '.cache', 'torch', 'hub', 'checkpoints');
     // Check for the model file

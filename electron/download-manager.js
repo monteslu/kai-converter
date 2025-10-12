@@ -1,9 +1,8 @@
 import https from 'https';
 import http from 'http';
 import { createWriteStream, existsSync, statSync, mkdirSync } from 'fs';
-import { pipeline } from 'stream/promises';
 import { join, dirname } from 'path';
-import { homedir, platform, arch } from 'os';
+import { homedir, platform } from 'os';
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { app } from 'electron';
@@ -268,7 +267,7 @@ export class DownloadManager {
         progressCallback({ stage: 'preparing', percent: 0, message: 'Preparing to download PyTorch...' });
       }
 
-      const result = await this._pipInstall(packageSpec, (update) => {
+      await this._pipInstall(packageSpec, (update) => {
         if (progressCallback) {
           // Estimate progress based on stage
           let percent = 10;
@@ -312,7 +311,7 @@ export class DownloadManager {
         progressCallback({ stage: 'preparing', percent: 0, message: 'Preparing to download Demucs...' });
       }
 
-      const result = await this._pipInstall('demucs', (update) => {
+      await this._pipInstall('demucs', (update) => {
         if (progressCallback) {
           let percent = 10;
           if (update.stage === 'downloading') percent = 40;
@@ -354,7 +353,7 @@ export class DownloadManager {
         progressCallback({ stage: 'preparing', percent: 0, message: 'Preparing to download Whisper...' });
       }
 
-      const result = await this._pipInstall('openai-whisper', (update) => {
+      await this._pipInstall('openai-whisper', (update) => {
         if (progressCallback) {
           let percent = 10;
           if (update.stage === 'downloading') percent = 40;
@@ -418,7 +417,7 @@ except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}))
 `;
 
-      const result = await new Promise((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         const python = spawn(this.pythonPath, ['-c', testScript], {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -446,7 +445,7 @@ except Exception as e:
           }
         });
 
-        python.on('close', (code) => {
+        python.on('close', () => {
           try {
             const result = JSON.parse(output.trim());
             if (result.success) {
@@ -454,7 +453,7 @@ except Exception as e:
             } else {
               reject(result);
             }
-          } catch (e) {
+          } catch {
             reject({
               success: false,
               error: 'Failed to parse output',
@@ -530,7 +529,7 @@ except Exception as e:
     print(json.dumps({"success": False, "error": str(e)}))
 `;
 
-      const result = await new Promise((resolve, reject) => {
+      await new Promise((resolve, reject) => {
         const python = spawn(this.pythonPath, ['-c', testScript], {
           stdio: ['pipe', 'pipe', 'pipe'],
         });
@@ -554,7 +553,7 @@ except Exception as e:
           }
         });
 
-        python.on('close', (code) => {
+        python.on('close', () => {
           try {
             const result = JSON.parse(output.trim());
             if (result.success) {
@@ -562,7 +561,7 @@ except Exception as e:
             } else {
               reject(result);
             }
-          } catch (e) {
+          } catch {
             reject({
               success: false,
               error: 'Failed to parse output',

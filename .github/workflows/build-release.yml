@@ -34,8 +34,8 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Build macOS app
-        run: npm run package:mac
+      - name: Build macOS app (all architectures)
+        run: npx electron-builder --mac dmg --x64 --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -43,7 +43,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: macos-builds
-          path: dist-electron/*.{dmg,zip}
+          path: dist-electron/*.dmg
           retention-days: 7
 
   build-windows:
@@ -69,8 +69,8 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Build Windows app
-        run: npm run package:win
+      - name: Build Windows app (NSIS + Portable)
+        run: npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -92,6 +92,16 @@ jobs:
         with:
           node-version: '18'
 
+      - name: Install Flatpak dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install QEMU for ARM64 builds
+        run: |
+          sudo apt-get install -y qemu-user-static
+
       - name: Install dependencies
         run: npm install
 
@@ -104,8 +114,31 @@ jobs:
       - name: Build renderer
         run: npm run build
 
-      - name: Build Linux app
-        run: npm run package:linux
+      - name: Install Flatpak runtimes (x64)
+        run: |
+          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/x86_64/24.08 org.freedesktop.Platform/x86_64/24.08 org.freedesktop.Sdk/x86_64/24.08
+
+      - name: Install Flatpak runtimes (arm64)
+        run: |
+          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08 org.freedesktop.Platform/aarch64/24.08 org.freedesktop.Sdk/aarch64/24.08
+
+      - name: Build Linux x64 AppImage
+        run: npx electron-builder --linux AppImage --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Linux arm64 AppImage
+        run: npx electron-builder --linux AppImage --arm64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Linux x64 Flatpak
+        run: npx electron-builder --linux flatpak --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Linux arm64 Flatpak
+        run: npx electron-builder --linux flatpak --arm64
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -113,7 +146,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-builds
-          path: dist-electron/*.{AppImage,deb,rpm}
+          path: |
+            dist-electron/*.AppImage
+            dist-electron/*.flatpak
           retention-days: 7
 
   create-release:

@@ -42,7 +42,7 @@ function sendLog(level, message) {
         message,
         timestamp: new Date().toISOString()
       });
-    } catch (err) {
+    } catch {
       // Ignore errors if window is being destroyed
     }
   }

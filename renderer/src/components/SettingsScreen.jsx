@@ -178,7 +178,7 @@ export default function SettingsScreen() {
                     name="stems"
                     value="2"
                     checked={stems === 2}
-                    onChange={(e) => setStems(2)}
+                    onChange={() => setStems(2)}
                     className="mr-2"
                   />
                   <span>2-stem (vocals + music) - Faster</span>
@@ -189,7 +189,7 @@ export default function SettingsScreen() {
                     name="stems"
                     value="4"
                     checked={stems === 4}
-                    onChange={(e) => setStems(4)}
+                    onChange={() => setStems(4)}
                     className="mr-2"
                   />
                   <span>4-stem (vocals + drums + bass + other) - Better quality</span>
@@ -206,7 +206,7 @@ export default function SettingsScreen() {
                     name="gpu"
                     value="auto"
                     checked={gpu === 'auto'}
-                    onChange={(e) => setGpu('auto')}
+                    onChange={() => setGpu('auto')}
                     className="mr-2"
                   />
                   <span>Auto-detect</span>
@@ -217,7 +217,7 @@ export default function SettingsScreen() {
                     name="gpu"
                     value="cpu"
                     checked={gpu === 'cpu'}
-                    onChange={(e) => setGpu('cpu')}
+                    onChange={() => setGpu('cpu')}
                     className="mr-2"
                   />
                   <span>Force CPU</span>
@@ -581,7 +581,7 @@ export default function SettingsScreen() {
                   name="theme"
                   value="system"
                   checked={theme === 'system'}
-                  onChange={(e) => handleThemeChange('system')}
+                  onChange={() => handleThemeChange('system')}
                   className="mr-2"
                 />
                 <span>Auto (follow system)</span>
@@ -592,7 +592,7 @@ export default function SettingsScreen() {
                   name="theme"
                   value="light"
                   checked={theme === 'light'}
-                  onChange={(e) => handleThemeChange('light')}
+                  onChange={() => handleThemeChange('light')}
                   className="mr-2"
                 />
                 <span>Light</span>
@@ -603,7 +603,7 @@ export default function SettingsScreen() {
                   name="theme"
                   value="dark"
                   checked={theme === 'dark'}
-                  onChange={(e) => handleThemeChange('dark')}
+                  onChange={() => handleThemeChange('dark')}
                   className="mr-2"
                 />
                 <span>Dark</span>

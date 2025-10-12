@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.kai.converter</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>KAI Converter</name>
+  <summary>AI-powered karaoke file creator with source separation and lyrics transcription</summary>
+
+  <description>
+    <p>
+      KAI Converter is a complete toolkit for creating KAI karaoke files with AI-powered
+      source separation, transcription, and lyrics correction. Transform any audio file
+      or YouTube video into professional karaoke packages with separated vocal and music tracks.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Audio stem separation - Isolate vocals and music using Demucs v4</li>
+      <li>AI lyrics transcription - OpenAI Whisper with word-level timing</li>
+      <li>Multi-language support - Auto-detection for mixed-language songs</li>
+      <li>Automatic lyrics correction - Multiple LLM providers (OpenAI, Claude, Gemini, local)</li>
+      <li>YouTube support - Download and convert videos directly</li>
+      <li>Karaoke video generation - Create MP4s with synchronized lyrics</li>
+      <li>Musical analysis - Key detection, tempo, chords, and more</li>
+      <li>KAI v1.0 format - Complete karaoke file packages</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.kai.converter.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>KAI Converter main interface for audio conversion</caption>
+      <image>https://raw.githubusercontent.com/monteslu/kai-converter/main/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/monteslu/kai-converter</url>
+  <url type="bugtracker">https://github.com/monteslu/kai-converter/issues</url>
+  <url type="vcs-browser">https://github.com/monteslu/kai-converter</url>
+
+  <developer id="com.kai">
+    <name>KAI Team</name>
+  </developer>
+
+  <update_contact>https://github.com/monteslu/kai-converter</update_contact>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1.0" date="2025-10-12">
+      <description>
+        <p>Initial release with core features</p>
+        <ul>
+          <li>AI-powered audio stem separation</li>
+          <li>Whisper-based lyrics transcription</li>
+          <li>Multi-language support with auto-detection</li>
+          <li>LLM-powered lyrics correction</li>
+          <li>YouTube video support</li>
+          <li>Karaoke video generation</li>
+        </ul>
+      </description>
+    </release>
+  </releases>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>AudioVideoEditing</category>
+  </categories>
+
+  <keywords>
+    <keyword>karaoke</keyword>
+    <keyword>audio</keyword>
+    <keyword>conversion</keyword>
+    <keyword>ai</keyword>
+    <keyword>lyrics</keyword>
+    <keyword>transcription</keyword>
+    <keyword>whisper</keyword>
+    <keyword>demucs</keyword>
+  </keywords>
+</component>

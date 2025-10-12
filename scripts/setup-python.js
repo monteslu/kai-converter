@@ -12,11 +12,9 @@
 
 import https from 'https';
 import { createWriteStream, existsSync, mkdirSync, rmSync } from 'fs';
-import { pipeline } from 'stream/promises';
-import { execSync, spawn } from 'child_process';
+import { execSync } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { createGunzip } from 'zlib';
 import * as tar from 'tar';
 
 const __filename = fileURLToPath(import.meta.url);
