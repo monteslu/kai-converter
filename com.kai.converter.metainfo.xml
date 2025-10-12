@@ -47,6 +47,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.5" date="2025-10-12">
+      <description>
+        <p>Flatpak build fixes</p>
+        <ul>
+          <li>Fixed flatpak-builder validation errors</li>
+          <li>Removed invalid desktop.entry configuration</li>
+          <li>Improved detail canvas border thickness</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.4" date="2025-10-12">
       <description>
         <p>UI improvements and bug fixes</p>
