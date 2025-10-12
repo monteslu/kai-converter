@@ -1,6 +1,6 @@
 {
   "name": "kai-converter",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "AI-powered karaoke file creator with source separation and lyrics transcription",
   "main": "electron/main.js",
   "type": "module",
@@ -107,9 +107,6 @@
     "nsis": {
       "differentialPackage": false
     },
-    "portable": {
-      "differentialPackage": false
-    },
     "mac": {
       "target": [
         {
@@ -147,9 +144,6 @@
       "icon": "resources/icon.png",
       "category": "AudioVideo",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
-    },
-    "appImage": {
-      "differentialPackage": false
     },
     "flatpak": {
       "runtime": "org.freedesktop.Platform",
