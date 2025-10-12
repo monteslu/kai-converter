@@ -47,6 +47,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.2" date="2025-10-12">
+      <description>
+        <p>Build configuration fix</p>
+        <ul>
+          <li>Fixed electron-builder configuration errors</li>
+          <li>Removed invalid differentialPackage options</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2025-10-12">
       <description>
         <p>macOS quarantine fix</p>
