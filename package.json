@@ -138,6 +138,13 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "flatpak",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "icon": "resources/icon.png",
