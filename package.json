@@ -149,13 +149,6 @@
       ],
       "icon": "resources/icon.png",
       "category": "AudioVideo",
-      "desktop": {
-        "entry": {
-          "Name": "KAI Converter",
-          "Comment": "AI-powered karaoke file creator with source separation and lyrics transcription",
-          "Categories": "AudioVideo;Audio;AudioVideoEditing;"
-        }
-      },
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
     },
     "flatpak": {
