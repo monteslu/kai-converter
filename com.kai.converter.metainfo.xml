@@ -47,6 +47,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.3" date="2025-10-12">
+      <description>
+        <p>Upgraded electron-builder + disabled blockmaps</p>
+        <ul>
+          <li>Upgraded to electron-builder 26.0.12</li>
+          <li>Disabled differential packages (no more .blockmap files)</li>
+          <li>Cleaner releases with only the necessary files</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.2" date="2025-10-12">
       <description>
         <p>Build configuration fix</p>

@@ -1,6 +1,6 @@
 {
   "name": "kai-converter",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "AI-powered karaoke file creator with source separation and lyrics transcription",
   "main": "electron/main.js",
   "type": "module",
@@ -41,7 +41,7 @@
     "autoprefixer": "^10.4.20",
     "concurrently": "^8.2.2",
     "electron": "^31.3.1",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.0.12",
     "eslint": "^9.37.0",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.0",
@@ -104,6 +104,12 @@
       "icon": "resources/icon.png",
       "artifactName": "${productName}-${version}-windows-${arch}.${ext}"
     },
+    "nsis": {
+      "differentialPackage": false
+    },
+    "portable": {
+      "differentialPackage": false
+    },
     "mac": {
       "target": [
         {
@@ -117,6 +123,9 @@
       "icon": "resources/icon.png",
       "category": "public.app-category.music",
       "artifactName": "${productName}-${version}-macos-${arch}.${ext}"
+    },
+    "dmg": {
+      "writeUpdateInfo": false
     },
     "linux": {
       "target": [
@@ -138,6 +147,9 @@
       "icon": "resources/icon.png",
       "category": "AudioVideo",
       "artifactName": "${productName}-${version}-linux-${arch}.${ext}"
+    },
+    "appImage": {
+      "differentialPackage": false
     },
     "flatpak": {
       "runtime": "org.freedesktop.Platform",
