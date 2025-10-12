@@ -48,6 +48,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.1" date="2025-10-12">
+      <description>
+        <p>Critical fix: DownloadManager Python path</p>
+        <ul>
+          <li>Fixed DownloadManager to use userData Python (not bundled)</li>
+          <li>Resolves spawn ENOTDIR error on startup</li>
+          <li>System check now works correctly</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.0" date="2025-10-12">
       <description>
         <p>Major improvements: Smart GPU detection + Real-time setup progress</p>

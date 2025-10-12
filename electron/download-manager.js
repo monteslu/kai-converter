@@ -39,10 +39,8 @@ export class DownloadManager {
 
   /**
    * Get the Python executable path
-   * - Development: use python-standalone (same as production)
-   * - Production: use bundled python-standalone
-   *
-   * This ensures consistency - if it works in dev, it works for users!
+   * - Development: use python-standalone
+   * - Production: use Python in userData directory (downloaded on first run)
    */
   _getPythonPath() {
     const platform = process.platform;
@@ -57,12 +55,19 @@ export class DownloadManager {
     };
 
     if (app.isPackaged) {
-      // Production: use bundled standalone Python
-      const bundledPython = getStandalonePath(join(process.resourcesPath, 'python'));
-      console.log('[DownloadManager] Using bundled Python:', bundledPython);
-      return bundledPython;
+      // Production: use Python in userData directory
+      const pythonDir = join(app.getPath('userData'), 'python');
+      const pythonPath = getStandalonePath(pythonDir);
+
+      if (existsSync(pythonPath)) {
+        console.log('[DownloadManager] Using Python:', pythonPath);
+        return pythonPath;
+      } else {
+        console.error('[DownloadManager] ❌ Python not found in userData');
+        throw new Error('Python not installed. Please run first-time setup.');
+      }
     } else {
-      // Development: use local standalone Python (same as production!)
+      // Development: use local standalone Python
       const standalonePython = getStandalonePath(join(__dirname, '..', 'python-standalone'));
       if (existsSync(standalonePython)) {
         console.log('[DownloadManager] Using standalone Python:', standalonePython);
