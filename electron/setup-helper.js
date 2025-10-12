@@ -4,7 +4,7 @@
 
 import https from 'https';
 import { createWriteStream, existsSync, mkdirSync, rmSync } from 'fs';
-import { execSync } from 'child_process';
+import { execSync, spawn } from 'child_process';
 import { join } from 'path';
 import * as tar from 'tar';
 
@@ -124,7 +124,95 @@ function getPythonExecutable(pythonDir) {
   }
 }
 
-function installPackages(pythonPath, requirementsPath, progressCallback) {
+function detectGPU() {
+  const platform = process.platform;
+
+  // macOS: Check for Apple Silicon (MPS support)
+  if (platform === 'darwin') {
+    try {
+      const arch = process.arch;
+      if (arch === 'arm64') {
+        console.log('✓ Apple Silicon detected (M1/M2/M3) - will use MPS acceleration');
+        return { type: 'mps', hasCuda: false };
+      } else {
+        console.log('✗ Intel Mac detected - will use CPU-only PyTorch');
+        return { type: 'cpu', hasCuda: false };
+      }
+    } catch {
+      return { type: 'cpu', hasCuda: false };
+    }
+  }
+
+  // Windows/Linux: Check for NVIDIA GPU
+  try {
+    // Try nvidia-smi first (works on both Windows and Linux)
+    const nvidiaSmiCmd = platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi';
+    execSync(nvidiaSmiCmd, { stdio: 'ignore' });
+    console.log('✓ NVIDIA GPU detected (nvidia-smi found) - will use CUDA');
+    return { type: 'cuda', hasCuda: true };
+  } catch {
+    // nvidia-smi not found, try lspci on Linux as backup
+    if (platform === 'linux') {
+      try {
+        const output = execSync('lspci', { encoding: 'utf8' });
+        if (output.toLowerCase().includes('nvidia')) {
+          console.log('✓ NVIDIA GPU detected (lspci found NVIDIA device) - will use CUDA');
+          return { type: 'cuda', hasCuda: true };
+        }
+      } catch {
+        // lspci failed
+      }
+    }
+    console.log('✗ No NVIDIA GPU detected - will use CPU-only PyTorch');
+    return { type: 'cpu', hasCuda: false };
+  }
+}
+
+async function runPipCommand(pythonPath, args, progressCallback, messagePrefix) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(pythonPath, ['-m', 'pip', ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let lastOutput = '';
+
+    const processOutput = (data) => {
+      const text = data.toString();
+      console.log(text); // Log to terminal
+      lastOutput = text;
+
+      if (progressCallback) {
+        // Extract useful info from pip output
+        const lines = text.split('\n');
+        for (const line of lines) {
+          if (line.includes('Downloading') || line.includes('Installing') || line.includes('Collecting')) {
+            const cleanLine = line.trim().substring(0, 80);
+            progressCallback({
+              stage: 'packages',
+              percent: 50,
+              message: `${messagePrefix}: ${cleanLine}`
+            });
+          }
+        }
+      }
+    };
+
+    proc.stdout.on('data', processOutput);
+    proc.stderr.on('data', processOutput);
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`pip command failed with code ${code}`));
+      }
+    });
+
+    proc.on('error', reject);
+  });
+}
+
+async function installPackages(pythonPath, requirementsPath, progressCallback) {
   if (!existsSync(requirementsPath)) {
     console.warn('requirements.txt not found, skipping package installation');
     return;
@@ -134,34 +222,82 @@ function installPackages(pythonPath, requirementsPath, progressCallback) {
     progressCallback({
       stage: 'packages',
       percent: 0,
-      message: 'Installing Python packages...'
+      message: 'Detecting GPU capabilities...'
     });
   }
 
+  // Detect GPU
+  const gpu = detectGPU();
+
   try {
     // Upgrade pip first
-    execSync(`"${pythonPath}" -m pip install --upgrade pip`, {
-      stdio: 'inherit',
-    });
-
     if (progressCallback) {
       progressCallback({
         stage: 'packages',
-        percent: 20,
-        message: 'Installing dependencies...'
+        percent: 5,
+        message: 'Upgrading pip...'
+      });
+    }
+    await runPipCommand(pythonPath, ['install', '--upgrade', 'pip'], progressCallback, 'Upgrading pip');
+
+    // Install PyTorch first with appropriate version
+    if (progressCallback) {
+      let installMsg = '';
+      if (gpu.type === 'cuda') {
+        installMsg = 'Installing PyTorch with CUDA support (~3.8GB)...';
+      } else if (gpu.type === 'mps') {
+        installMsg = 'Installing PyTorch with MPS support (~200MB)...';
+      } else {
+        installMsg = 'Installing PyTorch CPU-only (~200MB)...';
+      }
+      progressCallback({
+        stage: 'packages',
+        percent: 10,
+        message: installMsg
       });
     }
 
-    // Install requirements
-    execSync(`"${pythonPath}" -m pip install -r "${requirementsPath}"`, {
-      stdio: 'inherit',
-    });
+    if (gpu.type === 'cuda') {
+      // Install CUDA version (Linux/Windows with NVIDIA GPU)
+      console.log('Installing PyTorch with CUDA support...');
+      await runPipCommand(
+        pythonPath,
+        ['install', 'torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cu124'],
+        progressCallback,
+        'Installing PyTorch (CUDA)'
+      );
+    } else {
+      // Install CPU-only version (works for Intel CPUs and enables MPS on Apple Silicon)
+      // Note: MPS is automatically detected by PyTorch at runtime on Apple Silicon
+      console.log(`Installing PyTorch (${gpu.type === 'mps' ? 'with MPS support' : 'CPU-only'})...`);
+      await runPipCommand(
+        pythonPath,
+        ['install', 'torch', 'torchaudio', '--index-url', 'https://download.pytorch.org/whl/cpu'],
+        progressCallback,
+        gpu.type === 'mps' ? 'Installing PyTorch (MPS)' : 'Installing PyTorch (CPU)'
+      );
+    }
+
+    // Install remaining requirements
+    if (progressCallback) {
+      progressCallback({
+        stage: 'packages',
+        percent: 60,
+        message: 'Installing remaining dependencies...'
+      });
+    }
+    await runPipCommand(
+      pythonPath,
+      ['install', '-r', requirementsPath],
+      progressCallback,
+      'Installing dependencies'
+    );
 
     if (progressCallback) {
       progressCallback({
         stage: 'packages',
         percent: 100,
-        message: 'Package installation complete'
+        message: 'Package installation complete!'
       });
     }
   } catch (error) {
@@ -210,7 +346,7 @@ export async function setupPython(pythonDir, requirementsPath, progressCallback)
     console.log(`Python installed: ${version}`);
 
     // Install packages
-    installPackages(pythonPath, requirementsPath, progressCallback);
+    await installPackages(pythonPath, requirementsPath, progressCallback);
 
     if (progressCallback) {
       progressCallback({

@@ -1,5 +1,5 @@
-torch>=2.0.0
-torchaudio>=2.0.0
+# torch and torchaudio are installed separately based on GPU detection
+# See electron/setup-helper.js for installation logic
 demucs>=4.0.0
 numpy>=1.21.0,<2.0  # Must be <2.0 for scipy compatibility
 scipy>=1.7.0

@@ -31,6 +31,15 @@ function getBridges() {
   return { pythonBridge, systemChecker, downloadManager };
 }
 
+// Reinitialize bridges (e.g., after Python setup completes)
+function reinitializeBridges() {
+  console.log('[Main] Reinitializing bridges after setup...');
+  pythonBridge = new PythonBridge(sendLog);
+  systemChecker = new SystemChecker();
+  downloadManager = new DownloadManager();
+  return { pythonBridge, systemChecker, downloadManager };
+}
+
 const isDev = !app.isPackaged;
 
 let mainWindow = null;
@@ -236,7 +245,7 @@ async function checkPythonSetup() {
         buttons: ['OK']
       });
 
-      return true;
+      return 'setup-completed'; // Signal that setup just completed
     } catch (error) {
       await dialog.showMessageBox({
         type: 'error',
@@ -262,7 +271,8 @@ app.whenReady().then(async () => {
   }
 
   // Initialize bridges now that app is ready
-  const bridges = getBridges();
+  // If setup just completed, reinitialize to pick up new Python installation
+  const bridges = (pythonReady === 'setup-completed') ? reinitializeBridges() : getBridges();
 
   // Check if Python is available before starting
   if (!bridges.pythonBridge.pythonPath) {
