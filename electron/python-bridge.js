@@ -433,13 +433,15 @@ finally:
    */
   async readAudioMetadata(filePath) {
     return new Promise((resolve) => {
+      const pythonSrcPath = this._getPythonSrcPath().replace(/\\/g, '\\\\');
+
       const args = [
         '-c',
         `
 import sys
 import json
 from pathlib import Path
-sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
+sys.path.insert(0, '${pythonSrcPath}')
 
 from kai_pack.metadata import MetadataExtractor
 
@@ -532,13 +534,14 @@ except Exception as e:
   async fetchLyrics(title, artist) {
     return new Promise((resolve) => {
       const argsJson = JSON.stringify({ title, artist });
+      const pythonSrcPath = this._getPythonSrcPath().replace(/\\/g, '\\\\');
 
       const args = [
         '-c',
         `
 import sys
 import json
-sys.path.insert(0, '${join(__dirname, '..', 'src').replace(/\\/g, '\\\\')}')
+sys.path.insert(0, '${pythonSrcPath}')
 
 from utils.lyrics_utils import fetch_lyrics_from_lrclib
 

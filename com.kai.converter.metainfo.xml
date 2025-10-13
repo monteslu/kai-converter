@@ -48,6 +48,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.3" date="2025-10-12">
+      <description>
+        <p>Critical fix: Python module paths in AppImage</p>
+        <ul>
+          <li>Fixed kai_pack module import errors in readAudioMetadata and fetchLyrics</li>
+          <li>Both functions now use correct python-src path in packaged builds</li>
+          <li>Resolves "ModuleNotFoundError: No module named 'kai_pack'" error</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.2" date="2025-10-12">
       <description>
         <p>Critical fix: AppImage spawn ENOTDIR error</p>
