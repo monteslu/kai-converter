@@ -161,6 +161,10 @@ jobs:
         run: |
           echo "Adding Flathub remote..."
           flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          echo "Installing arm64 Platform runtime..."
+          flatpak install -y flathub org.freedesktop.Platform/aarch64/24.08 || echo "Platform already installed"
+          echo "Installing arm64 SDK..."
+          flatpak install -y flathub org.freedesktop.Sdk/aarch64/24.08
           echo "Installing Electron base app (arm64)..."
           flatpak install -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08
 
