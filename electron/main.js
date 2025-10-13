@@ -11,16 +11,21 @@ import { setupPython } from './setup-helper.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Initialize settings store
-const store = new Store({
-  name: 'kai-converter-settings',
-  encryptionKey: 'kai-converter-secure-key', // Basic encryption for API keys
-});
-
-// Lazy-initialize bridges (after app is ready)
+// Lazy-initialize store and bridges (after app is ready)
+let store = null;
 let pythonBridge = null;
 let systemChecker = null;
 let downloadManager = null;
+
+function getStore() {
+  if (!store) {
+    store = new Store({
+      name: 'kai-converter-settings',
+      encryptionKey: 'kai-converter-secure-key', // Basic encryption for API keys
+    });
+  }
+  return store;
+}
 
 function getBridges() {
   if (!pythonBridge) {
@@ -291,7 +296,7 @@ app.whenReady().then(async () => {
   }
 
   // Load and apply saved theme before creating window
-  const savedTheme = store.get('theme', 'system');
+  const savedTheme = getStore().get('theme', 'system');
   nativeTheme.themeSource = savedTheme;
 
   createWindow();
@@ -321,14 +326,14 @@ app.on('before-quit', () => {
 // Theme management
 ipcMain.handle('get-theme', () => {
   // Return the saved theme preference (not the computed dark/light state)
-  return store.get('theme', 'system');
+  return getStore().get('theme', 'system');
 });
 
 ipcMain.handle('set-theme', (event, theme) => {
   // theme: 'light', 'dark', or 'system'
   nativeTheme.themeSource = theme;
   // Persist theme preference to store
-  store.set('theme', theme);
+  getStore().set('theme', theme);
   return nativeTheme.shouldUseDarkColors ? 'dark' : 'light';
 });
 
@@ -503,7 +508,7 @@ ipcMain.handle('fetch-lyrics', async (event, title, artist) => {
 ipcMain.handle('save-settings', async (event, settings) => {
   try {
     // Save all settings to encrypted store
-    store.set('settings', settings);
+    getStore().set('settings', settings);
     console.log('Settings saved successfully');
     return { success: true };
   } catch (error) {
@@ -515,7 +520,7 @@ ipcMain.handle('save-settings', async (event, settings) => {
 ipcMain.handle('load-settings', async () => {
   try {
     // Load settings from store with defaults
-    const settings = store.get('settings', {
+    const settings = getStore().get('settings', {
       whisperModel: 'large-v3-turbo',
       language: 'auto',
       stems: 2,

@@ -48,6 +48,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.8" date="2025-10-12">
+      <description>
+        <p>Performance: Much faster startup time</p>
+        <ul>
+          <li>Lazy-load electron-store to avoid premature initialization</li>
+          <li>Store now initialized only when needed (after app is ready)</li>
+          <li>Eliminates 5-10 second delay before first-run setup dialog</li>
+          <li>First popup now shows immediately after AppImage mounts</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.7" date="2025-10-12">
       <description>
         <p>Critical fix: First-run setup crash</p>
