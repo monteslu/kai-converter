@@ -1,10 +1,32 @@
-import { useState, useEffect } from 'react';
+/**
+ * EditScreen - Full-featured KAI file lyric editor (Converter version)
+ *
+ * Features:
+ * - File picker to load KAI files (instead of library search)
+ * - Edit ID3 metadata + lyrics for KAI files
+ * - Full waveform visualization with canvases
+ * - Audio playback with Web Audio API
+ * - Keyboard shortcuts for editing (Q/O/P/A/S/K/L)
+ * - AI corrections display (rejections and suggestions)
+ * - Export/reset functionality
+ */
+
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { LyricsEditorCanvas } from './LyricsEditorCanvas.jsx';
+import { LineDetailCanvas } from './LineDetailCanvas.jsx';
+import { LyricLine } from './LyricLine.jsx';
+import { Toast } from './Toast.jsx';
+import { LyricRejection } from './LyricRejection.jsx';
+import { LyricSuggestion } from './LyricSuggestion.jsx';
+import { loadKaiAudioFiles } from '../utils/kaiFileLoader.js';
 
 export default function EditScreen() {
-  const [inputFile, setInputFile] = useState(null);
-  const [kaiData, setKaiData] = useState(null);
-  const [lyrics, setLyrics] = useState([]);
-  const [originalLyrics, setOriginalLyrics] = useState([]);
+  const [loadedFile, setLoadedFile] = useState(null);
+  const [songData, setSongData] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('lyrics');
+
+  // Metadata form state
   const [metadata, setMetadata] = useState({
     title: '',
     artist: '',
@@ -13,181 +35,673 @@ export default function EditScreen() {
     genre: '',
     key: '',
   });
+
+  // Lyrics state - array format for full editing
+  const [lyricsData, setLyricsData] = useState([]);
+  const [originalLyricsData, setOriginalLyricsData] = useState([]);
+  const [selectedLineIndex, setSelectedLineIndex] = useState(null);
+  const [songDuration, setSongDuration] = useState(0);
+  const [rejections, setRejections] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
   const [hasChanges, setHasChanges] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveResult, setSaveResult] = useState(null);
-  const [error, setError] = useState(null);
-  const [editingLineIndex, setEditingLineIndex] = useState(null);
 
-  // Handle file selection
-  async function handleSelectFile() {
-    try {
-      if (window.electronAPI) {
-        const filePath = await window.electronAPI.selectKaiFile();
-        if (filePath) {
-          await loadKaiFile(filePath);
-        }
+  // Audio playback state
+  const [audioElements, setAudioElements] = useState([]);
+  const [audioContext, setAudioContext] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentPosition, setCurrentPosition] = useState(0);
+  const [playingLineEndTime, setPlayingLineEndTime] = useState(null);
+
+  // Waveform visualization
+  const [vocalsWaveform, setVocalsWaveform] = useState(null);
+
+  // Animation frame ref for smooth playhead
+  const animationFrameRef = useRef(null);
+
+  // Toast notification state
+  const [toast, setToast] = useState(null);
+
+  // Lyrics editing handlers - wrap in useCallback for stable references
+  const handleLineUpdate = useCallback((index, updatedLine) => {
+    setLyricsData((prev) => prev.map((line, i) => (i === index ? updatedLine : line)));
+    setHasChanges(true);
+  }, []);
+
+  const handlePlayLineSection = useCallback(
+    async (startTime, endTime) => {
+      if (!audioElements.length) {
+        console.warn('No audio elements available for playback');
+        return;
       }
-    } catch (error) {
-      console.error('File selection error:', error);
-      setError('Failed to select file: ' + error.message);
-    }
-  }
 
-  // Load KAI file
-  async function loadKaiFile(filePath) {
-    setInputFile(filePath);
-    setSaveResult(null);
-    setError(null);
-    setKaiData(null);
-    setLyrics([]);
-    setOriginalLyrics([]);
-    setHasChanges(false);
-    setEditingLineIndex(null);
+      console.log(`🎵 Playing section: ${startTime}s - ${endTime}s`);
 
-    try {
-      const result = await window.electronAPI.readKaiMetadata(filePath);
-      setKaiData(result);
+      // Clear end time first to prevent premature stop
+      setPlayingLineEndTime(null);
 
-      // Load metadata
-      setMetadata({
-        title: result.song?.title || '',
-        artist: result.song?.artist || '',
-        album: result.song?.album || '',
-        year: result.song?.year || '',
-        genre: result.song?.genre || '',
-        key: result.song?.key || '',
+      // Set audio position
+      audioElements.forEach(({ audio }) => {
+        audio.currentTime = startTime;
       });
 
-      // Load lyrics
-      if (result.lines && Array.isArray(result.lines)) {
-        const sortedLyrics = [...result.lines].sort((a, b) => {
+      // Start playback with error handling
+      try {
+        const playPromises = audioElements.map(({ audio }) => audio.play());
+        await Promise.all(playPromises);
+        setIsPlaying(true);
+        console.log('✅ Audio playback started');
+      } catch (error) {
+        console.error('Failed to play audio:', error);
+        setToast({
+          message: `Failed to play audio: ${error.message}`,
+          type: 'error',
+        });
+        return;
+      }
+
+      // Set end time after position has been set
+      // Use a small timeout to ensure currentTime has updated
+      setTimeout(() => {
+        setPlayingLineEndTime(endTime);
+      }, 50);
+    },
+    [audioElements]
+  );
+
+  // Cleanup audio on unmount or song change
+  const cleanupAudio = useCallback(() => {
+    // Stop and cleanup existing audio
+    audioElements.forEach(({ audio, source }) => {
+      audio.pause();
+      audio.currentTime = 0;
+      try {
+        source.disconnect();
+      } catch {
+        // Ignore disconnect errors
+      }
+    });
+
+    if (audioContext) {
+      audioContext.close();
+    }
+
+    setAudioElements([]);
+    setAudioContext(null);
+    setIsPlaying(false);
+  }, [audioElements, audioContext]);
+
+  // Navigate to previous enabled line
+  const selectPreviousEnabledLine = useCallback(() => {
+    if (selectedLineIndex === null || selectedLineIndex === 0) {
+      return; // Already at first line
+    }
+
+    // Find previous enabled line
+    for (let i = selectedLineIndex - 1; i >= 0; i--) {
+      if (!lyricsData[i].disabled) {
+        setSelectedLineIndex(i);
+        return;
+      }
+    }
+  }, [selectedLineIndex, lyricsData]);
+
+  // Navigate to next enabled line
+  const selectNextEnabledLine = useCallback(() => {
+    if (selectedLineIndex === null) {
+      // No selection, select first enabled line
+      for (let i = 0; i < lyricsData.length; i++) {
+        if (!lyricsData[i].disabled) {
+          setSelectedLineIndex(i);
+          return;
+        }
+      }
+      return;
+    }
+
+    if (selectedLineIndex >= lyricsData.length - 1) {
+      return; // Already at last line
+    }
+
+    // Find next enabled line
+    for (let i = selectedLineIndex + 1; i < lyricsData.length; i++) {
+      if (!lyricsData[i].disabled) {
+        setSelectedLineIndex(i);
+        return;
+      }
+    }
+  }, [selectedLineIndex, lyricsData]);
+
+  // Play currently selected line
+  const playCurrentLine = useCallback(() => {
+    if (selectedLineIndex === null || !lyricsData[selectedLineIndex]) {
+      return;
+    }
+
+    const line = lyricsData[selectedLineIndex];
+    const startTime = line.start || line.startTimeSec || 0;
+    const endTime = line.end || line.endTimeSec || startTime + 3;
+    handlePlayLineSection(startTime, endTime);
+  }, [selectedLineIndex, lyricsData, handlePlayLineSection]);
+
+  // Adjust start time of selected line
+  const adjustStartTime = useCallback(
+    (delta) => {
+      if (selectedLineIndex === null || !lyricsData[selectedLineIndex]) {
+        return;
+      }
+
+      const line = lyricsData[selectedLineIndex];
+      const currentStart = line.start || line.startTimeSec || 0;
+      const newStart = Math.max(0, currentStart + delta); // Don't go below 0
+
+      const updatedLine = {
+        ...line,
+        start: newStart,
+        startTimeSec: newStart,
+      };
+
+      handleLineUpdate(selectedLineIndex, updatedLine);
+    },
+    [selectedLineIndex, lyricsData, handleLineUpdate]
+  );
+
+  // Adjust end time of selected line
+  const adjustEndTime = useCallback(
+    (delta) => {
+      if (selectedLineIndex === null || !lyricsData[selectedLineIndex]) {
+        return;
+      }
+
+      const line = lyricsData[selectedLineIndex];
+      const currentEnd = line.end || line.endTimeSec || 0;
+      const newEnd = Math.max(0, currentEnd + delta); // Don't go below 0
+
+      const updatedLine = {
+        ...line,
+        end: newEnd,
+        endTimeSec: newEnd,
+      };
+
+      handleLineUpdate(selectedLineIndex, updatedLine);
+    },
+    [selectedLineIndex, lyricsData, handleLineUpdate]
+  );
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing in an input field
+      const target = e.target;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
+
+      // Only apply shortcuts when on lyrics tab with a song loaded
+      if (activeTab !== 'lyrics' || !lyricsData.length) {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case 'q': // Previous enabled line
+          e.preventDefault();
+          selectPreviousEnabledLine();
+          break;
+        case 'o': // Next enabled line
+          e.preventDefault();
+          selectNextEnabledLine();
+          break;
+        case 'p': // Play current line
+          e.preventDefault();
+          playCurrentLine();
+          break;
+        case 'a': // Decrease start time by 0.1s
+          e.preventDefault();
+          adjustStartTime(-0.1);
+          break;
+        case 's': // Increase start time by 0.1s
+          e.preventDefault();
+          adjustStartTime(0.1);
+          break;
+        case 'k': // Decrease end time by 0.1s
+          e.preventDefault();
+          adjustEndTime(-0.1);
+          break;
+        case 'l': // Increase end time by 0.1s
+          e.preventDefault();
+          adjustEndTime(0.1);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [
+    activeTab,
+    lyricsData,
+    selectedLineIndex,
+    audioElements,
+    selectPreviousEnabledLine,
+    selectNextEnabledLine,
+    playCurrentLine,
+    adjustStartTime,
+    adjustEndTime,
+  ]);
+
+  // Load a KAI file for editing
+  const handleLoadFile = async () => {
+    try {
+      // Use file picker instead of search
+      const filePath = await window.electronAPI.selectKaiFile();
+      if (!filePath) return;
+
+      console.log('🔍 Loading KAI file for editing:', filePath);
+      const kaiData = await window.electronAPI.readKaiMetadata(filePath);
+      console.log('📦 KAI data loaded:', kaiData);
+
+      // KAI data is returned directly (not wrapped in {success: true})
+      if (kaiData && kaiData.song) {
+        setLoadedFile({ path: filePath, title: kaiData.song?.title || 'Untitled' });
+        setSongData({ format: 'kai' });
+
+        // Populate metadata form
+        setMetadata({
+          title: kaiData.song?.title || '',
+          artist: kaiData.song?.artist || '',
+          album: kaiData.song?.album || '',
+          year: kaiData.song?.year || '',
+          genre: kaiData.song?.genre || '',
+          key: kaiData.song?.key || '',
+        });
+
+        // Populate lyrics - KAI file has 'lines' array
+        const lyrics = kaiData.lines || [];
+        // Sort lyrics by start time to ensure proper order
+        const sortedLyrics = [...lyrics].sort((a, b) => {
           const aStart = a.start || a.startTimeSec || 0;
           const bStart = b.start || b.startTimeSec || 0;
           return aStart - bStart;
         });
-        setLyrics(JSON.parse(JSON.stringify(sortedLyrics)));
-        setOriginalLyrics(JSON.parse(JSON.stringify(sortedLyrics)));
+        setLyricsData(JSON.parse(JSON.stringify(sortedLyrics)));
+        setOriginalLyricsData(JSON.parse(JSON.stringify(sortedLyrics)));
+
+        // Get duration from audio metadata or calculate from last line
+        const duration = kaiData.audio?.duration_sec ||
+                        kaiData.duration_sec ||
+                        (sortedLyrics.length > 0 ? (sortedLyrics[sortedLyrics.length - 1].end || 0) + 5 : 180);
+        setSongDuration(duration);
+
+        // Load AI corrections if available
+        const kaiRejections = kaiData.meta?.corrections?.rejected || [];
+        setRejections(
+          kaiRejections.map((rejection) => ({
+            line_num: rejection.line,
+            start_time: rejection.start,
+            end_time: rejection.end,
+            old_text: rejection.old,
+            new_text: rejection.new,
+            reason: rejection.reason,
+            retention_rate: rejection.word_retention,
+            min_required: 0.5,
+          }))
+        );
+
+        const kaiSuggestions = kaiData.meta?.corrections?.missing_lines_suggested || [];
+        setSuggestions(
+          kaiSuggestions.map((suggestion) => ({
+            suggested_text: suggestion.suggested_text,
+            start_time: suggestion.start,
+            end_time: suggestion.end,
+            confidence: suggestion.confidence,
+            reason: suggestion.reason,
+            pitch_activity: suggestion.pitch_activity,
+          }))
+        );
+
+        setHasChanges(false);
+
+        // Default to lyrics tab
+        setActiveTab('lyrics');
+
+        // Load audio from KAI file
+        const audioFiles = await loadKaiAudioFiles(filePath);
+        loadAudioFilesForPlayback(audioFiles);
+      } else {
+        console.error('❌ Invalid KAI data:', kaiData);
+        showToast('Failed to load KAI file: Invalid or missing data', 'error');
       }
-    } catch (err) {
-      console.error('Failed to load KAI file:', err);
-      setError('Failed to load KAI file: ' + err.message);
+    } catch (error) {
+      console.error('Failed to load KAI file:', error);
+      showToast(`Failed to load file: ${error.message}`, 'error');
     }
-  }
+  };
 
-  // Handle metadata changes
-  function handleMetadataChange(field, value) {
-    setMetadata((prev) => ({ ...prev, [field]: value }));
-    setHasChanges(true);
-  }
+  // Load audio files for KAI songs
+  const loadAudioFilesForPlayback = (audioFiles) => {
+    try {
+      // Clean up existing audio
+      cleanupAudio();
 
-  // Handle lyric line text change
-  function handleLyricTextChange(index, newText) {
-    setLyrics((prev) =>
-      prev.map((line, i) => (i === index ? { ...line, text: newText } : line))
-    );
-    setHasChanges(true);
-  }
+      // Create new AudioContext (using default device)
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      setAudioContext(ctx);
 
-  // Handle lyric time change
-  function handleLyricTimeChange(index, field, value) {
-    const numValue = parseFloat(value) || 0;
-    setLyrics((prev) =>
-      prev.map((line, i) => {
-        if (i === index) {
-          const updatedLine = {
-            ...line,
-            [field]: numValue,
-          };
-          // Update both formats for compatibility
-          if (field === 'start') updatedLine.startTimeSec = numValue;
-          if (field === 'end') updatedLine.endTimeSec = numValue;
-          return updatedLine;
+      // Create audio elements for each source
+      const elements = audioFiles.map((file) => {
+        const audio = new Audio(file.downloadUrl);
+        audio.crossOrigin = 'anonymous'; // For CORS if needed
+        audio.preload = 'auto';
+        audio.volume = 1.0;
+
+        // Create media element source for the audio context
+        const source = ctx.createMediaElementSource(audio);
+        const gainNode = ctx.createGain();
+
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        // Only vocals unmuted by default
+        const isVocals = file.name.toLowerCase().includes('vocal');
+        const muted = !isVocals;
+        gainNode.gain.value = muted ? 0 : 1;
+
+        return {
+          name: file.name,
+          audio: audio,
+          source: source,
+          gainNode: gainNode,
+          muted: muted,
+          audioData: file.audioData, // Keep reference to raw audio data
+        };
+      });
+
+      setAudioElements(elements);
+      console.log(`🎵 Loaded ${elements.length} audio sources for playback`);
+
+      // Find vocals track and analyze waveform
+      const vocalsFile = audioFiles.find((file) => file.name.toLowerCase().includes('vocal'));
+      const vocalsElement = elements.find((el) => el.name.toLowerCase().includes('vocal'));
+
+      if (vocalsElement) {
+        setupAudioPlaybackMonitoring(vocalsElement.audio);
+        // Pass both audio element and raw data (if available)
+        analyzeVocalsWaveform(vocalsElement.audio, vocalsFile?.audioData);
+      } else if (elements[0]) {
+        // Fallback to first track if no vocals
+        setupAudioPlaybackMonitoring(elements[0].audio);
+        analyzeVocalsWaveform(elements[0].audio, audioFiles[0]?.audioData);
+      }
+    } catch (error) {
+      console.error('Failed to load audio files:', error);
+      showToast(`Failed to load audio: ${error.message}`, 'error');
+    }
+  };
+
+  // Setup audio playback monitoring for playhead
+  const setupAudioPlaybackMonitoring = (audio) => {
+    const handlePause = () => {
+      setPlayingLineEndTime(null);
+      setIsPlaying(false);
+    };
+
+    audio.addEventListener('pause', handlePause);
+  };
+
+  // Smooth playhead animation using requestAnimationFrame
+  useEffect(() => {
+    if (isPlaying && audioElements.length > 0) {
+      const updatePosition = () => {
+        const audio = audioElements[0]?.audio;
+        if (audio && !audio.paused) {
+          setCurrentPosition(audio.currentTime);
+          animationFrameRef.current = requestAnimationFrame(updatePosition);
         }
-        return line;
+      };
+
+      animationFrameRef.current = requestAnimationFrame(updatePosition);
+
+      return () => {
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+        }
+      };
+    }
+  }, [isPlaying, audioElements]);
+
+  // Check if playback should stop at line end time
+  useEffect(() => {
+    if (playingLineEndTime !== null && currentPosition >= playingLineEndTime) {
+      // Pause all audio elements
+      audioElements.forEach(({ audio }) => audio.pause());
+      setPlayingLineEndTime(null);
+      setIsPlaying(false);
+    }
+  }, [currentPosition, playingLineEndTime, audioElements]);
+
+  // Analyze vocals waveform
+  const analyzeVocalsWaveform = async (audioElement, rawAudioData) => {
+    try {
+      let arrayBuffer;
+
+      // Try to use raw audio data first (with Buffer data)
+      if (rawAudioData) {
+        if (rawAudioData instanceof ArrayBuffer) {
+          arrayBuffer = rawAudioData;
+        } else if (rawAudioData.buffer instanceof ArrayBuffer) {
+          // It's a typed array (like Uint8Array or Buffer)
+          arrayBuffer = rawAudioData.buffer.slice(
+            rawAudioData.byteOffset,
+            rawAudioData.byteOffset + rawAudioData.byteLength
+          );
+        }
+      }
+
+      // Fall back to fetching from audio element src (blob URLs)
+      if (!arrayBuffer && audioElement?.src) {
+        const response = await fetch(audioElement.src);
+        arrayBuffer = await response.arrayBuffer();
+      }
+
+      if (!arrayBuffer) {
+        throw new Error('No audio data available for waveform analysis');
+      }
+
+      // Create temporary audio context for analysis
+      const tempContext = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuffer = await tempContext.decodeAudioData(arrayBuffer);
+
+      // Get channel data
+      const channelData = audioBuffer.getChannelData(0);
+      const targetSamples = 3800;
+      const downsampleFactor = Math.floor(channelData.length / targetSamples);
+
+      // Create waveform data
+      const waveform = new Int8Array(targetSamples);
+
+      for (let i = 0; i < targetSamples; i++) {
+        const start = i * downsampleFactor;
+        const end = Math.min(start + downsampleFactor, channelData.length);
+
+        let max = 0;
+        for (let j = start; j < end; j++) {
+          max = Math.max(max, Math.abs(channelData[j]));
+        }
+
+        waveform[i] = Math.floor(max * 127);
+      }
+
+      setVocalsWaveform(waveform);
+      tempContext.close();
+
+      console.log('✅ Waveform analysis complete');
+    } catch (error) {
+      console.error('Failed to analyze waveform:', error);
+    }
+  };
+
+  // Play/pause audio
+  const togglePlayback = () => {
+    if (!audioElements.length) return;
+
+    if (isPlaying) {
+      audioElements.forEach(({ audio }) => audio.pause());
+      setIsPlaying(false);
+    } else {
+      audioElements.forEach(({ audio }) => audio.play());
+      setIsPlaying(true);
+    }
+  };
+
+  // Toggle mute for individual source
+  const toggleMute = (index) => {
+    setAudioElements((prev) =>
+      prev.map((el, i) => {
+        if (i === index) {
+          const newMuted = !el.muted;
+          el.gainNode.gain.value = newMuted ? 0 : 1;
+          return { ...el, muted: newMuted };
+        }
+        return el;
       })
     );
-    setHasChanges(true);
-  }
+  };
 
-  // Delete a lyric line
-  function handleDeleteLine(index) {
-    if (confirm('Delete this lyric line?')) {
-      setLyrics((prev) => prev.filter((_, i) => i !== index));
-      setHasChanges(true);
-      if (editingLineIndex === index) {
-        setEditingLineIndex(null);
+  // Cleanup on component unmount only (not when cleanupAudio changes)
+  useEffect(() => {
+    return () => {
+      // Direct cleanup without using the callback (to avoid dependency issues)
+      audioElements.forEach(({ audio, source }) => {
+        audio.pause();
+        audio.currentTime = 0;
+        try {
+          source.disconnect();
+        } catch {
+          // Ignore disconnect errors
+        }
+      });
+
+      if (audioContext) {
+        audioContext.close();
       }
-    }
-  }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on unmount
 
-  // Add new line after
-  function handleAddLineAfter(index) {
-    const currentLine = lyrics[index];
-    const nextLine = lyrics[index + 1];
+  // Show toast notification
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+  };
+
+  const handleLineDelete = (index) => {
+    setLyricsData((prev) => prev.filter((_, i) => i !== index));
+    setSelectedLineIndex(null);
+    setHasChanges(true);
+  };
+
+  const handleAddLineAfter = (index) => {
+    const currentLine = lyricsData[index];
+    const nextLine = lyricsData[index + 1];
 
     const currentEndTime = currentLine.end || currentLine.endTimeSec || 0;
     const nextStartTime = nextLine
       ? nextLine.start || nextLine.startTimeSec || currentEndTime + 3
       : currentEndTime + 3;
 
+    const gap = nextStartTime - currentEndTime;
+    const usableGap = gap * 0.8;
+    const margin = gap * 0.1;
+
     const newLine = {
-      start: currentEndTime + 0.5,
-      startTimeSec: currentEndTime + 0.5,
-      end: nextStartTime - 0.5,
-      endTimeSec: nextStartTime - 0.5,
+      start: currentEndTime + margin,
+      startTimeSec: currentEndTime + margin,
+      end: currentEndTime + margin + usableGap,
+      endTimeSec: currentEndTime + margin + usableGap,
       text: '',
     };
 
-    setLyrics((prev) => [
-      ...prev.slice(0, index + 1),
-      newLine,
-      ...prev.slice(index + 1),
-    ]);
+    setLyricsData((prev) => [...prev.slice(0, index + 1), newLine, ...prev.slice(index + 1)]);
     setHasChanges(true);
-    setEditingLineIndex(index + 1);
-  }
+  };
 
-  // Reset to original
-  function handleReset() {
-    if (confirm('Reset all changes? This cannot be undone.')) {
-      setLyrics(JSON.parse(JSON.stringify(originalLyrics)));
-      setMetadata({
-        title: kaiData?.song?.title || '',
-        artist: kaiData?.song?.artist || '',
-        album: kaiData?.song?.album || '',
-        year: kaiData?.song?.year || '',
-        genre: kaiData?.song?.genre || '',
-        key: kaiData?.song?.key || '',
-      });
-      setHasChanges(false);
-      setSaveResult(null);
-      setError(null);
-    }
-  }
-
-  // Save changes
-  async function handleSave() {
-    if (!inputFile) {
-      setError('No file loaded');
+  const handleAddLineAtStart = () => {
+    const firstLine = lyricsData[0];
+    if (!firstLine) {
+      // No lines exist, create a default one
+      const newLine = {
+        start: 0,
+        startTimeSec: 0,
+        end: 3,
+        endTimeSec: 3,
+        text: '',
+      };
+      setLyricsData([newLine]);
+      setHasChanges(true);
       return;
     }
 
-    setIsSaving(true);
-    setSaveResult(null);
-    setError(null);
+    const firstLineStart = firstLine.start || firstLine.startTimeSec || 0;
+
+    // Create a line from 0 to 80% of available space
+    const gap = firstLineStart;
+    const usableGap = gap * 0.8;
+
+    const newLine = {
+      start: 0,
+      startTimeSec: 0,
+      end: usableGap,
+      endTimeSec: usableGap,
+      text: '',
+    };
+
+    setLyricsData((prev) => [newLine, ...prev]);
+    setHasChanges(true);
+  };
+
+  const canAddLineAtStart = () => {
+    const firstLine = lyricsData[0];
+    if (!firstLine) return true;
+    const firstLineStart = firstLine.start || firstLine.startTimeSec || 0;
+    return firstLineStart >= 0.6;
+  };
+
+  const canAddLineAfter = (index) => {
+    const currentLine = lyricsData[index];
+    const nextLine = lyricsData[index + 1];
+
+    if (!nextLine) return true;
+
+    const currentEndTime = currentLine.end || currentLine.endTimeSec || 0;
+    const nextStartTime = nextLine.start || nextLine.startTimeSec || 0;
+    const gap = nextStartTime - currentEndTime;
+
+    return gap >= 0.6;
+  };
+
+  // Handle metadata field changes
+  const handleMetadataChange = (field, value) => {
+    setMetadata((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    setHasChanges(true);
+  };
+
+  // Save changes
+  const handleSave = async () => {
+    if (!loadedFile) return;
 
     try {
+      setIsSaving(true);
+
       // Sort lyrics by start time before saving
-      const sortedLyrics = [...lyrics].sort((a, b) => {
+      const sortedLyrics = [...lyricsData].sort((a, b) => {
         const aStart = a.start || a.startTimeSec || 0;
         const bStart = b.start || b.startTimeSec || 0;
         return aStart - bStart;
       });
 
       const updates = {
-        inputFile,
-        outputFile: inputFile, // Save back to same file
+        inputFile: loadedFile.path,
+        outputFile: loadedFile.path, // Save back to same file
         metadata,
         lyrics: sortedLyrics,
       };
@@ -195,284 +709,466 @@ export default function EditScreen() {
       const result = await window.electronAPI.updateKaiFile(updates);
 
       if (result.success) {
-        setSaveResult('File saved successfully!');
+        console.log('✅ KAI file saved successfully');
+        showToast('File saved successfully', 'success');
         setHasChanges(false);
-        // Update original lyrics after successful save
-        setOriginalLyrics(JSON.parse(JSON.stringify(sortedLyrics)));
-        setLyrics(sortedLyrics);
+        // Update original data after successful save
+        setOriginalLyricsData(JSON.parse(JSON.stringify(sortedLyrics)));
       } else {
-        setError('Save failed: ' + (result.error || 'Unknown error'));
+        console.error('❌ Save failed:', result.error);
+        showToast(`Save failed: ${result.error}`, 'error');
       }
-    } catch (err) {
-      console.error('Save error:', err);
-      setError('Save failed: ' + err.message);
+    } catch (error) {
+      console.error('Failed to save file:', error);
+      showToast(`Save failed: ${error.message}`, 'error');
     } finally {
       setIsSaving(false);
     }
-  }
+  };
 
-  // Format time for display
-  function formatTime(seconds) {
-    const mins = Math.floor(seconds / 60);
-    const secs = (seconds % 60).toFixed(2);
-    return `${mins}:${secs.padStart(5, '0')}`;
-  }
+  // Close editor
+  const handleClose = () => {
+    setLoadedFile(null);
+    setSongData(null);
+    setMetadata({
+      title: '',
+      artist: '',
+      album: '',
+      year: '',
+      genre: '',
+      key: '',
+    });
+    setLyricsData([]);
+    cleanupAudio();
+  };
+
+  // Export lyrics as text file
+  const handleExportLyrics = () => {
+    if (!lyricsData || lyricsData.length === 0) return;
+
+    const lyricsText = lyricsData.map((line) => line.text || '').join('\n');
+    const blob = new Blob([lyricsText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${metadata.title || 'lyrics'}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    URL.revokeObjectURL(url);
+    showToast('Lyrics exported successfully', 'success');
+  };
+
+  // Reset to original lyrics
+  const handleResetLyrics = () => {
+    if (!confirm('Reset all changes to original lyrics?')) return;
+
+    setLyricsData(JSON.parse(JSON.stringify(originalLyricsData)));
+    setHasChanges(false);
+    showToast('Reset to original lyrics', 'success');
+  };
+
+  // Handle rejection acceptance
+  const handleAcceptRejection = (rejectionIndex) => {
+    const rejection = rejections[rejectionIndex];
+    if (!rejection) return;
+
+    // Find the lyric line to update by matching timing
+    let targetLineIndex = -1;
+
+    for (let i = 0; i < lyricsData.length; i++) {
+      const line = lyricsData[i];
+      const lineStart = line.start || line.startTimeSec || 0;
+      const lineEnd = line.end || line.endTimeSec || 0;
+
+      // Match by timing
+      if (rejection.start_time !== undefined && rejection.end_time !== undefined) {
+        if (
+          Math.abs(lineStart - rejection.start_time) < 0.1 &&
+          Math.abs(lineEnd - rejection.end_time) < 0.1
+        ) {
+          targetLineIndex = i;
+          break;
+        }
+      } else if (rejection.old_text && line.text === rejection.old_text) {
+        // Fallback: match by old text content
+        targetLineIndex = i;
+        break;
+      }
+    }
+
+    // If no timing match found, fallback to line number approach
+    if (targetLineIndex === -1) {
+      const lineIndex = rejection.line_num - 1;
+      if (lineIndex >= 0 && lineIndex < lyricsData.length) {
+        targetLineIndex = lineIndex;
+      }
+    }
+
+    if (targetLineIndex >= 0 && targetLineIndex < lyricsData.length) {
+      // Update the lyric text with the proposed text
+      const updatedLine = { ...lyricsData[targetLineIndex], text: rejection.new_text };
+      setLyricsData((prev) => prev.map((line, i) => (i === targetLineIndex ? updatedLine : line)));
+
+      // Remove the rejection from the list
+      setRejections((prev) => prev.filter((_, i) => i !== rejectionIndex));
+      setHasChanges(true);
+      showToast('Accepted proposed text', 'success');
+    } else {
+      showToast('Could not find matching lyric line', 'error');
+    }
+  };
+
+  // Handle rejection deletion
+  const handleDeleteRejection = (rejectionIndex) => {
+    setRejections((prev) => prev.filter((_, i) => i !== rejectionIndex));
+    setHasChanges(true);
+  };
+
+  // Handle suggestion acceptance
+  const handleAcceptSuggestion = (suggestionIndex) => {
+    const suggestion = suggestions[suggestionIndex];
+    if (!suggestion) return;
+
+    // Find the best insertion point based on timing
+    let insertionIndex = lyricsData.length; // Default to end
+
+    for (let i = 0; i < lyricsData.length; i++) {
+      const line = lyricsData[i];
+      const lineStart = line.start || line.startTimeSec || 0;
+
+      if (suggestion.start_time < lineStart) {
+        insertionIndex = i;
+        break;
+      }
+    }
+
+    // Create new lyric line from suggestion
+    const newLine = {
+      start: suggestion.start_time,
+      startTimeSec: suggestion.start_time,
+      end: suggestion.end_time,
+      endTimeSec: suggestion.end_time,
+      text: suggestion.suggested_text,
+    };
+
+    // Insert the new line at the correct position
+    setLyricsData((prev) => [
+      ...prev.slice(0, insertionIndex),
+      newLine,
+      ...prev.slice(insertionIndex),
+    ]);
+
+    // Remove the suggestion from the list
+    setSuggestions((prev) => prev.filter((_, i) => i !== suggestionIndex));
+    setHasChanges(true);
+    showToast('Added suggested line', 'success');
+  };
+
+  // Handle suggestion deletion
+  const handleDeleteSuggestion = (suggestionIndex) => {
+    setSuggestions((prev) => prev.filter((_, i) => i !== suggestionIndex));
+    setHasChanges(true);
+  };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">✏️ Edit KAI File</h1>
-
-      {/* File Selection */}
-      {!inputFile && (
-        <div className="card p-6 mb-6">
-          <button
-            onClick={handleSelectFile}
-            className="w-full py-12 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:border-gray-400 dark:hover:border-gray-500 transition-colors"
-          >
-            <p className="text-4xl mb-4">📦</p>
-            <p className="text-lg text-gray-700 dark:text-gray-300">
-              Click to select a .kai file to edit
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-              You can edit lyrics and metadata
-            </p>
-          </button>
+    <div className="flex flex-col h-full overflow-hidden bg-gray-50 dark:bg-gray-900 p-4">
+      {!loadedFile ? (
+        // File picker view (replaces search)
+        <div className="flex flex-col gap-6 max-w-[800px] mx-auto w-full">
+          <div className="flex flex-col items-center justify-center p-16 text-center">
+            <div className="text-6xl mb-4 opacity-50">📁</div>
+            <div className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+              Select a KAI file to edit
+            </div>
+            <div className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              Edit lyrics, metadata, and timing for any KAI file
+            </div>
+            <button
+              onClick={handleLoadFile}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors"
+            >
+              <span className="material-icons">folder_open</span>
+              Choose KAI File
+            </button>
+          </div>
         </div>
-      )}
-
-      {/* File Info and Actions */}
-      {inputFile && (
-        <div className="card p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Editing:</p>
-              <p className="text-lg font-medium text-gray-700 dark:text-gray-300">
-                {inputFile.split('/').pop().split('\\').pop()}
+      ) : (
+        // Edit view (same as player)
+        <div className="flex flex-col gap-3 h-full overflow-hidden">
+          <div className="flex items-center justify-between gap-4 flex-shrink-0">
+            <div className="flex-1 min-w-0">
+              <h2 className="text-lg font-semibold m-0 text-gray-900 dark:text-white whitespace-nowrap overflow-hidden text-ellipsis">
+                {metadata.title || loadedFile.title}
+              </h2>
+              <p className="text-xs text-gray-600 dark:text-gray-400 m-0 mt-0.5">
+                {metadata.artist} • KAI
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-shrink-0">
               <button
-                onClick={handleReset}
-                disabled={!hasChanges || isSaving}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleClose}
+                className="flex items-center gap-1.5 px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white cursor-pointer text-sm transition-colors hover:bg-gray-200 dark:hover:bg-gray-600"
               >
-                Reset
-              </button>
-              <button
-                onClick={handleSelectFile}
-                disabled={isSaving}
-                className="px-4 py-2 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700"
-              >
-                Load Different File
+                <span className="material-icons text-lg">close</span>
+                Close
               </button>
               <button
                 onClick={handleSave}
-                disabled={!hasChanges || isSaving}
-                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
-                  hasChanges && !isSaving
-                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                    : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                }`}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded text-white cursor-pointer text-sm transition-colors ${hasChanges ? 'bg-blue-600 border-blue-600 hover:bg-blue-700' : 'bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-gray-600'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                disabled={isSaving}
               >
-                {isSaving ? 'Saving...' : hasChanges ? 'Save Changes *' : 'Saved'}
+                <span className="material-icons text-lg">save</span>
+                {isSaving ? 'Saving...' : hasChanges ? 'Save*' : 'Save'}
               </button>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Success Message */}
-      {saveResult && (
-        <div className="card p-4 mb-6 bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
-          <p className="text-green-800 dark:text-green-300">✓ {saveResult}</p>
-        </div>
-      )}
-
-      {/* Error Message */}
-      {error && (
-        <div className="card p-4 mb-6 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800">
-          <p className="text-red-800 dark:text-red-300">✗ {error}</p>
-        </div>
-      )}
-
-      {/* Metadata Section */}
-      {inputFile && kaiData && (
-        <div className="card p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Metadata</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Title</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.title}
-                onChange={(e) => handleMetadataChange('title', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Artist</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.artist}
-                onChange={(e) => handleMetadataChange('artist', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Album</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.album}
-                onChange={(e) => handleMetadataChange('album', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Year</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.year}
-                onChange={(e) => handleMetadataChange('year', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Genre</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.genre}
-                onChange={(e) => handleMetadataChange('genre', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Key</label>
-              <input
-                type="text"
-                className="input w-full"
-                value={metadata.key}
-                onChange={(e) => handleMetadataChange('key', e.target.value)}
-                disabled={isSaving}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Lyrics Section */}
-      {inputFile && kaiData && (
-        <div className="card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold">Lyrics ({lyrics.length} lines)</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Click a line to edit timing and text
-            </p>
+          {/* Tab navigation */}
+          <div className="flex gap-1 border-b-2 border-gray-200 dark:border-gray-700 pb-0">
+            <button
+              className={`px-6 py-3 bg-transparent border-none border-b-[3px] font-semibold text-[15px] cursor-pointer transition-all -mb-0.5 ${activeTab === 'lyrics' ? 'text-blue-600 border-b-blue-600' : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              onClick={() => setActiveTab('lyrics')}
+            >
+              Lyrics
+            </button>
+            <button
+              className={`px-6 py-3 bg-transparent border-none border-b-[3px] font-semibold text-[15px] cursor-pointer transition-all -mb-0.5 ${activeTab === 'metadata' ? 'text-blue-600 border-b-blue-600' : 'text-gray-600 dark:text-gray-400 border-b-transparent hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700'}`}
+              onClick={() => setActiveTab('metadata')}
+            >
+              Metadata
+            </button>
           </div>
 
-          {lyrics.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <p>No lyrics found in this file</p>
+          {/* Metadata form */}
+          {activeTab === 'metadata' && (
+            <div className="flex flex-col gap-6 overflow-y-auto flex-1 pb-6">
+              <h3 className="text-lg font-semibold m-0 text-gray-900 dark:text-white">Metadata</h3>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(250px,1fr))] gap-5">
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Title
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.title}
+                    onChange={(e) => handleMetadataChange('title', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Artist
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.artist}
+                    onChange={(e) => handleMetadataChange('artist', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Album
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.album}
+                    onChange={(e) => handleMetadataChange('album', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Year
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.year}
+                    onChange={(e) => handleMetadataChange('year', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Genre
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.genre}
+                    onChange={(e) => handleMetadataChange('genre', e.target.value)}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+                    Key
+                  </label>
+                  <input
+                    type="text"
+                    className="px-4 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-white text-[15px] transition-colors focus:outline-none focus:border-blue-600"
+                    value={metadata.key}
+                    onChange={(e) => handleMetadataChange('key', e.target.value)}
+                  />
+                </div>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-2">
-              {lyrics.map((line, index) => {
-                const isEditing = editingLineIndex === index;
-                const start = line.start || line.startTimeSec || 0;
-                const end = line.end || line.endTimeSec || 0;
+          )}
 
-                return (
-                  <div
-                    key={index}
-                    className={`p-3 border rounded-lg transition-colors ${
-                      isEditing
-                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                        : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
-                    }`}
+          {/* Lyrics editor */}
+          {activeTab === 'lyrics' && (
+            <>
+              {/* Waveform canvas */}
+              <LyricsEditorCanvas
+                lyricsData={lyricsData}
+                selectedLineIndex={selectedLineIndex}
+                onLineSelect={setSelectedLineIndex}
+                vocalsWaveform={vocalsWaveform}
+                songDuration={songDuration}
+                currentPosition={currentPosition}
+                isPlaying={isPlaying}
+              />
+
+              {/* Line detail canvas - zoomed view of selected line */}
+              <LineDetailCanvas
+                selectedLine={selectedLineIndex !== null ? lyricsData[selectedLineIndex] : null}
+                vocalsWaveform={vocalsWaveform}
+                songDuration={songDuration}
+                currentPosition={currentPosition}
+                isPlaying={isPlaying}
+              />
+
+              {/* Audio playback controls */}
+              {audioElements.length > 0 && (
+                <div className="flex items-center gap-2 px-2 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded flex-shrink-0">
+                  <button
+                    onClick={togglePlayback}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-blue-600 border-blue-600 rounded text-white cursor-pointer text-xs transition-colors hover:bg-blue-700"
                   >
-                    <div className="flex items-start gap-3">
-                      <div className="flex-shrink-0 w-12 text-sm text-gray-500 dark:text-gray-400 pt-2">
-                        #{index + 1}
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        {/* Timing Controls */}
-                        <div className="flex items-center gap-2 text-sm">
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-600 dark:text-gray-400">Start:</span>
-                            <input
-                              type="number"
-                              step="0.1"
-                              className="input w-24 text-sm px-2 py-1"
-                              value={start.toFixed(2)}
-                              onChange={(e) => handleLyricTimeChange(index, 'start', e.target.value)}
-                              disabled={isSaving}
-                            />
-                            <span className="text-gray-500 dark:text-gray-400">
-                              {formatTime(start)}
-                            </span>
-                          </div>
-                          <span className="text-gray-400">→</span>
-                          <div className="flex items-center gap-1">
-                            <span className="text-gray-600 dark:text-gray-400">End:</span>
-                            <input
-                              type="number"
-                              step="0.1"
-                              className="input w-24 text-sm px-2 py-1"
-                              value={end.toFixed(2)}
-                              onChange={(e) => handleLyricTimeChange(index, 'end', e.target.value)}
-                              disabled={isSaving}
-                            />
-                            <span className="text-gray-500 dark:text-gray-400">
-                              {formatTime(end)}
-                            </span>
-                          </div>
-                          <span className="text-gray-500 dark:text-gray-400 ml-2">
-                            ({(end - start).toFixed(2)}s)
+                    <span className="material-icons text-base">
+                      {isPlaying ? 'pause' : 'play_arrow'}
+                    </span>
+                    {isPlaying ? 'Pause' : 'Play'}
+                  </button>
+                  <div className="flex gap-1.5 flex-wrap flex-1 items-center">
+                    {audioElements.map((el, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded"
+                      >
+                        <span className="text-[11px] font-semibold text-gray-900 dark:text-white min-w-[45px]">
+                          {el.name}
+                        </span>
+                        <button
+                          onClick={() => toggleMute(index)}
+                          className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] cursor-pointer transition-colors ${el.muted ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-green-600 text-white hover:bg-green-700'}`}
+                        >
+                          <span className="material-icons text-xs">
+                            {el.muted ? 'volume_off' : 'volume_up'}
                           </span>
-                        </div>
-
-                        {/* Text Input */}
-                        <textarea
-                          className="input w-full resize-none"
-                          rows={2}
-                          value={line.text || ''}
-                          onChange={(e) => handleLyricTextChange(index, e.target.value)}
-                          onFocus={() => setEditingLineIndex(index)}
-                          onBlur={() => setEditingLineIndex(null)}
-                          disabled={isSaving}
-                          placeholder="Enter lyric text..."
-                        />
-
-                        {/* Action Buttons */}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleAddLineAfter(index)}
-                            disabled={isSaving}
-                            className="text-xs px-2 py-1 border rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
-                          >
-                            + Add After
-                          </button>
-                          <button
-                            onClick={() => handleDeleteLine(index)}
-                            disabled={isSaving}
-                            className="text-xs px-2 py-1 border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 rounded hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
-                          >
-                            Delete
-                          </button>
-                        </div>
+                          {el.muted ? 'Muted' : 'On'}
+                        </button>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                  <button
+                    onClick={handleExportLyrics}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white cursor-pointer text-xs transition-colors hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!lyricsData || lyricsData.length === 0}
+                    title="Export lyrics as text file"
+                  >
+                    <span className="material-icons text-base">download</span>
+                    Export
+                  </button>
+                  <button
+                    onClick={handleResetLyrics}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white cursor-pointer text-xs transition-colors hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!hasChanges}
+                    title="Reset to original lyrics"
+                  >
+                    <span className="material-icons text-base">restore</span>
+                    Reset
+                  </button>
+                  <button
+                    onClick={handleAddLineAtStart}
+                    className="flex items-center gap-1.5 px-3 py-1 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded text-gray-900 dark:text-white cursor-pointer text-xs transition-colors hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!canAddLineAtStart()}
+                    title={
+                      canAddLineAtStart()
+                        ? 'Add line at beginning'
+                        : 'Not enough space (need 0.6s gap)'
+                    }
+                  >
+                    <span className="material-icons text-base">add</span>
+                    Add First Line
+                  </button>
+                </div>
+              )}
+
+              {/* Scrollable container for lyrics and corrections */}
+              <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+                {/* Lyrics lines */}
+                <div className="flex flex-col gap-0 p-3 overflow-y-auto flex-1">
+                  {lyricsData && lyricsData.length > 0 ? (
+                    lyricsData.map((line, index) => (
+                      <LyricLine
+                        key={`lyric-${index}`}
+                        line={line}
+                        index={index}
+                        isSelected={selectedLineIndex === index}
+                        onSelect={setSelectedLineIndex}
+                        onUpdate={handleLineUpdate}
+                        onDelete={handleLineDelete}
+                        onAddAfter={handleAddLineAfter}
+                        onPlaySection={handlePlayLineSection}
+                        canAddAfter={canAddLineAfter(index)}
+                      />
+                    ))
+                  ) : (
+                    <div className="text-center p-10 text-gray-500 dark:text-gray-400 text-base">
+                      No lyrics available. Load a KAI file with lyrics to edit.
+                    </div>
+                  )}
+                </div>
+
+                {/* AI Corrections Section */}
+                {(rejections.length > 0 || suggestions.length > 0) && (
+                  <div className="mb-6 p-4 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md">
+                    <h3 className="text-base font-semibold m-0 mb-4 text-gray-900 dark:text-white">
+                      AI Corrections & Suggestions
+                    </h3>
+
+                    {rejections.map((rejection, rejectionIndex) => (
+                      <LyricRejection
+                        key={`rejection-${rejectionIndex}`}
+                        rejection={rejection}
+                        rejectionIndex={rejectionIndex}
+                        onAccept={handleAcceptRejection}
+                        onDelete={handleDeleteRejection}
+                      />
+                    ))}
+
+                    {suggestions.map((suggestion, suggestionIndex) => (
+                      <LyricSuggestion
+                        key={`suggestion-${suggestionIndex}`}
+                        suggestion={suggestion}
+                        suggestionIndex={suggestionIndex}
+                        onAccept={handleAcceptSuggestion}
+                        onDelete={handleDeleteSuggestion}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       )}
+
+      {/* Toast notification */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
 }

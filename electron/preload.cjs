@@ -41,6 +41,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   readAudioMetadata: (filePath) => ipcRenderer.invoke('read-audio-metadata', filePath),
   readKaiMetadata: (filePath) => ipcRenderer.invoke('read-kai-metadata', filePath),
   updateKaiFile: (updates) => ipcRenderer.invoke('update-kai-file', updates),
+  extractKaiAudio: (filePath) => ipcRenderer.invoke('extract-kai-audio', filePath),
 
   // Lyrics
   fetchLyrics: (title, artist) => ipcRenderer.invoke('fetch-lyrics', title, artist),
