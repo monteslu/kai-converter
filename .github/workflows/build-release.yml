@@ -129,7 +129,7 @@ jobs:
           retention-days: 7
 
   build-linux-arm64:
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-24.04-arm64-4core
     container:
       image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
       options: --privileged
