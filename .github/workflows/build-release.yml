@@ -129,7 +129,7 @@ jobs:
           retention-days: 7
 
   build-linux-arm64:
-    runs-on: ubuntu-24.04-arm64-4core
+    runs-on: ubuntu-latest
     container:
       image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
       options: --privileged
@@ -141,6 +141,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+
+      - name: Install QEMU for ARM64 builds
+        run: |
+          dnf install -y qemu-user-static
 
       - name: Install dependencies
         run: npm install
