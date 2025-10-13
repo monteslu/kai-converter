@@ -277,7 +277,7 @@ app.whenReady().then(async () => {
   // Check if Python is available before starting
   if (!bridges.pythonBridge.pythonPath) {
     console.error('\n❌ FATAL ERROR: Python not found!');
-    console.error('   Error:', pythonBridge.initError);
+    console.error('   Error:', bridges.pythonBridge.initError);
 
     await dialog.showMessageBox({
       type: 'error',
