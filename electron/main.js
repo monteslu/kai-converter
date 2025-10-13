@@ -168,6 +168,10 @@ async function checkPythonSetup() {
         width: 500,
         height: 300,
         resizable: false,
+        minimizable: false,
+        maximizable: false,
+        autoHideMenuBar: true,
+        skipTaskbar: true,
         title: 'Setting up KAI Converter...',
         webPreferences: {
           nodeIntegration: false,
