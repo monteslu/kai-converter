@@ -1,5 +1,6 @@
 # torch and torchaudio are installed separately based on GPU detection
 # See electron/setup-helper.js for installation logic
+yt-dlp>=2024.10.0  # YouTube downloader (needs frequent updates for anti-bot measures)
 demucs>=4.0.0
 numpy>=1.21.0,<2.0  # Must be <2.0 for scipy compatibility
 scipy>=1.7.0

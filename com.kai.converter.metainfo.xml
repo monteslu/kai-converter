@@ -48,6 +48,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.5" date="2025-10-12">
+      <description>
+        <p>Critical fix: YouTube download support</p>
+        <ul>
+          <li>Added yt-dlp to Python requirements (was using outdated system version)</li>
+          <li>Fixes YouTube 403 Forbidden errors and nsig extraction failures</li>
+          <li>yt-dlp now auto-installed during first-run setup</li>
+          <li>Always uses latest yt-dlp compatible with YouTube's anti-bot measures</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.4" date="2025-10-12">
       <description>
         <p>New feature: Full-featured KAI lyric editor</p>
