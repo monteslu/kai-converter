@@ -122,7 +122,10 @@ jobs:
           flatpak install -y flathub org.electronjs.Electron2.BaseApp/x86_64/24.08
           echo "Installing Electron base app (arm64)..."
           flatpak install -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08
-          echo "Checking installed runtimes..."
+          echo "Verifying installations..."
+          flatpak info org.electronjs.Electron2.BaseApp/x86_64/24.08 || echo "x64 not found!"
+          flatpak info org.electronjs.Electron2.BaseApp/aarch64/24.08 || echo "arm64 not found!"
+          echo "All installed runtimes:"
           flatpak list --runtime
 
       - name: Build Linux x64 Flatpak
@@ -132,7 +135,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux arm64 Flatpak
-        run: npx electron-builder --linux flatpak --arm64
+        run: DEBUG="@malept/flatpak-bundler" npx electron-builder --linux flatpak --arm64
         timeout-minutes: 45
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
