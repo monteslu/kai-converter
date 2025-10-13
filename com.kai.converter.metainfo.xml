@@ -48,6 +48,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.3.6" date="2025-10-12">
+      <description>
+        <p>Build optimization: Much faster CI/CD builds</p>
+        <ul>
+          <li>Switched to Docker container with pre-installed Flatpak runtimes</li>
+          <li>Eliminates 10+ minute runtime download step</li>
+          <li>Builds complete ~50% faster on GitHub Actions</li>
+          <li>Flatpak builds remain fully functional</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.3.5" date="2025-10-12">
       <description>
         <p>Critical fix: YouTube download support</p>

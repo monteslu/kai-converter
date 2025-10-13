@@ -82,6 +82,9 @@ jobs:
 
   build-linux:
     runs-on: ubuntu-latest
+    container:
+      image: bilelmoussaoui/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -91,38 +94,16 @@ jobs:
         with:
           node-version: '18'
 
-      - name: Cache Flatpak runtimes
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.local/share/flatpak
-            ~/.cache/flatpak-builder
-            ~/.var/app/
-          key: flatpak-${{ runner.os }}-v3
-          restore-keys: |
-            flatpak-${{ runner.os }}-
-
-      - name: Install Flatpak dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-
       - name: Install QEMU for ARM64 builds
         run: |
-          sudo apt-get install -y qemu-user-static
+          apt-get update
+          apt-get install -y qemu-user-static
 
       - name: Install dependencies
         run: npm install
 
       - name: Build renderer
         run: npm run build
-
-      - name: Pre-install all Flatpak runtimes (parallel warm-up)
-        run: |
-          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/x86_64/24.08 org.freedesktop.Platform/x86_64/24.08 org.freedesktop.Sdk/x86_64/24.08 &
-          flatpak install --user -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08 org.freedesktop.Platform/aarch64/24.08 org.freedesktop.Sdk/aarch64/24.08 &
-          wait
 
       - name: Build Linux x64 AppImage
         run: npx electron-builder --linux AppImage --x64
