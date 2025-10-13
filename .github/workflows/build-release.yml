@@ -165,7 +165,7 @@ jobs:
           flatpak install -y flathub org.electronjs.Electron2.BaseApp/aarch64/24.08
 
       - name: Build Linux arm64 Flatpak
-        run: npx electron-builder --linux flatpak --arm64
+        run: DEBUG="@malept/flatpak-bundler" npx electron-builder --linux flatpak --arm64
         timeout-minutes: 45
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
