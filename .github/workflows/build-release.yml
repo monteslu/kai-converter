@@ -96,8 +96,7 @@ jobs:
 
       - name: Install QEMU for ARM64 builds
         run: |
-          apt-get update
-          apt-get install -y qemu-user-static
+          dnf install -y qemu-user-static
 
       - name: Install dependencies
         run: npm install
