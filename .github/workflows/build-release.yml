@@ -114,27 +114,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check Flatpak environment
+      - name: Setup Flatpak remotes and Electron base
         run: |
-          echo "Checking Flatpak tools..."
-          flatpak --version
-          flatpak-builder --version
-          echo "Checking disk space..."
-          df -h /tmp
-          echo "Checking runtimes..."
-          flatpak list --runtime || true
+          echo "Adding Flathub remote..."
+          flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          echo "Installing Electron base app..."
+          flatpak install -y flathub org.electronjs.Electron2.BaseApp//24.08
+          echo "Checking installed runtimes..."
+          flatpak list --runtime
 
       - name: Build Linux x64 Flatpak
-        run: DEBUG="@malept/flatpak-bundler" npx electron-builder --linux flatpak --x64
+        run: npx electron-builder --linux flatpak --x64
         timeout-minutes: 45
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Linux arm64 Flatpak
-        run: DEBUG="@malept/flatpak-bundler" npx electron-builder --linux flatpak --arm64
+        run: npx electron-builder --linux flatpak --arm64
         timeout-minutes: 45
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
