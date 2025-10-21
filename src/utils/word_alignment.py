@@ -8,6 +8,7 @@ import numpy as np
 import whisper
 from pydub import AudioSegment
 import logging
+from .whisper_utils import load_whisper_model
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def align_words_to_audio(
         # Load Whisper model if needed
         if isinstance(whisper_model, str):
             logger.info(f"Loading Whisper model: {whisper_model}")
-            model = whisper.load_model(whisper_model, device=device)
+            model = load_whisper_model(whisper_model, device=device)
         else:
             model = whisper_model
 
@@ -140,7 +141,7 @@ def batch_align_segments(
     # Load model once for efficiency
     if isinstance(whisper_model, str):
         logger.info(f"Loading Whisper model: {whisper_model}")
-        model = whisper.load_model(whisper_model, device=device)
+        model = load_whisper_model(whisper_model, device=device)
     else:
         model = whisper_model
 

@@ -15,7 +15,7 @@
 
 ## 2. Tech stack
 - Python 3.10+ • PyTorch/torchaudio • Demucs v4 (`htdemucs_ft` preferred)
-- librosa • madmom • Essentia • CREPE (`crepe`/`torchcrepe`) • dtw-python • numpy • scipy
+- CREPE (`torchcrepe`) • dtw-python • numpy • scipy
 - mutagen (ID3) • ffmpeg • zipfile
 
 ## 3. CLI
@@ -31,7 +31,7 @@ Options:
   --stem-bitrate 160k
   --vocals-bitrate 128k
   --no-analysis
-  --features f0,notes,tempo,keys,chords,onsets,mfcc
+  --features f0,notes,~~tempo~~,~~keys~~,~~chords~~,onsets,~~mfcc~~
   --id3-raw true|false        # default true; controls meta.id3.raw inclusion
   --title "…" --artist "…"    # override ID3-derived values
   --cover cover.jpg
@@ -57,7 +57,8 @@ Options:
 - Sets `timing.reference="aligned_to_vocals_wav"`, `offset_sec`
 
 ### 4.4 Optional analysis → `features/`
-- F0, notes, onsets, tempo, keys, chords, vocal activity, MFCC
+- F0, notes, onsets, ~~tempo~~, ~~keys~~, ~~chords~~, vocal activity, ~~MFCC~~
+- **Note:** Tempo/BPM removed - DJ software analyzes this itself
 
 ### 4.5 ID3 ingestion (mandatory)
 - Read ID3v2/v1 via mutagen

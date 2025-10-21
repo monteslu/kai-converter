@@ -18,6 +18,13 @@ except ImportError:
     WHISPER_AVAILABLE = False
     whisper = None
 
+# Import our custom Whisper loader for cache control
+try:
+    from utils.whisper_utils import load_whisper_model
+except ImportError:
+    # Fallback if import fails (shouldn't happen in normal usage)
+    load_whisper_model = None
+
 try:
     import torchcrepe
     CREPE_AVAILABLE = True
@@ -32,8 +39,8 @@ def transcribe_chunk_worker(chunk: Dict[str, Any], model_name: str) -> Optional[
     """Worker function for parallel chunk transcription."""
     try:
         # Each worker needs its own Whisper model instance
-        import whisper
-        model = whisper.load_model(model_name)
+        from utils.whisper_utils import load_whisper_model
+        model = load_whisper_model(model_name)
         
         # Convert to mono for transcription
         audio = chunk['audio']
@@ -124,14 +131,14 @@ class LyricsTranscriber:
         # Load Whisper model
         try:
             logger.info(f"Loading Whisper model: {model_name}")
-            self.model = whisper.load_model(model_name, device=self.device)
+            self.model = load_whisper_model(model_name, device=self.device) if load_whisper_model else whisper.load_model(model_name, device=self.device)
             logger.info(f"Successfully loaded Whisper model: {model_name}")
         except Exception as e:
             if self.device == "mps" and "SparseMPS" in str(e):
                 logger.warning(f"MPS not compatible with {model_name}, falling back to CPU")
                 self.device = "cpu"
                 try:
-                    self.model = whisper.load_model(model_name, device=self.device)
+                    self.model = load_whisper_model(model_name, device=self.device) if load_whisper_model else whisper.load_model(model_name, device=self.device)
                     logger.info(f"Successfully loaded Whisper model: {model_name} on CPU")
                 except Exception as cpu_e:
                     raise RuntimeError(f"Failed to load Whisper model {model_name} on CPU: {cpu_e}")

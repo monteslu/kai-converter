@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Model downloads
   downloadComponent: (component) => ipcRenderer.invoke('download-component', component),
+  reinitializeBridges: () => ipcRenderer.invoke('reinitialize-bridges'),
   onDownloadProgress: (callback) => {
     const subscription = (event, progress) => callback(progress);
     ipcRenderer.on('download-progress', subscription);

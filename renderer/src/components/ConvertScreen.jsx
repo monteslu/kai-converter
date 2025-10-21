@@ -7,6 +7,7 @@ export default function ConvertScreen() {
   const [youtubeTitle, setYoutubeTitle] = useState('');
   const [youtubeArtist, setYoutubeArtist] = useState('');
   const [outputFile, setOutputFile] = useState(null);
+  const [outputFormat, setOutputFormat] = useState('kai'); // 'kai' or 'm4a'
   const [whisperModel, setWhisperModel] = useState('large-v3-turbo');
   const [language, setLanguage] = useState('auto');
   const [fourStems, setFourStems] = useState(false);
@@ -20,12 +21,67 @@ export default function ConvertScreen() {
   const [manualLyrics, setManualLyrics] = useState('');
   const [showLyricsInput, setShowLyricsInput] = useState(false);
   const [showLyricsDisplay, setShowLyricsDisplay] = useState(false);
+  const [liveLyric, setLiveLyric] = useState(null); // Live transcription from Whisper
+  const [songDuration, setSongDuration] = useState(null); // Song duration in seconds
+  const [whisperProgress, setWhisperProgress] = useState(null); // { currentTime, confidence }
   const fileInputRef = useRef(null);
 
   // Load settings on mount
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Listen for live lyrics during Whisper transcription
+  useEffect(() => {
+    if (!window.electronAPI?.onLogs) return;
+
+    const unsubscribe = window.electronAPI.onLogs((logEntry) => {
+      // Only show live lyrics during Whisper stage
+      if (!isWhisperStage()) {
+        if (liveLyric) setLiveLyric(null); // Clear when not in Whisper stage
+        if (whisperProgress) setWhisperProgress(null); // Clear progress too
+        return;
+      }
+
+      // Check if this is a Whisper transcription line (format: [00:22.020 --> 00:25.000]  Text)
+      const timestampMatch = logEntry.message?.match(/^\[(\d{2}):(\d{2})\.(\d{3}) --> (\d{2}):(\d{2})\.(\d{3})\]/);
+      if (logEntry.level === 'info' && timestampMatch) {
+        // Extract the end timestamp (how far through the song we've transcribed)
+        const minutes = parseInt(timestampMatch[4]);
+        const seconds = parseInt(timestampMatch[5]);
+        const milliseconds = parseInt(timestampMatch[6]);
+        const currentTime = minutes * 60 + seconds + milliseconds / 1000;
+
+        // Extract lyric text
+        const lyricText = logEntry.message.replace(/^\[\d{2}:\d{2}\.\d{3} --> \d{2}:\d{2}\.\d{3}\]\s*/, '');
+        setLiveLyric(lyricText.trim());
+
+        // Update progress time
+        setWhisperProgress(prev => ({ ...prev, currentTime }));
+      }
+
+      // Parse confidence values (format: "confidence: 0.70")
+      const confidenceMatch = logEntry.message?.match(/confidence:\s*(0?\.\d+)/);
+      if (confidenceMatch) {
+        const confidence = parseFloat(confidenceMatch[1]);
+        setWhisperProgress(prev => ({ ...prev, confidence }));
+      }
+    });
+
+    return unsubscribe;
+  }, [isProcessing, progress]);
+
+  // Update output file extension when format changes
+  useEffect(() => {
+    if (outputFile) {
+      const extension = outputFormat === 'm4a' ? '.stem.m4a' : '.kai';
+      // Replace the extension at the end
+      const newPath = outputFile.replace(/\.(kai|stem\.m4a)$/, extension);
+      if (newPath !== outputFile) {
+        setOutputFile(newPath);
+      }
+    }
+  }, [outputFormat]);
 
   async function loadSettings() {
     try {
@@ -65,15 +121,21 @@ export default function ConvertScreen() {
     setShowLyricsInput(false);
     setShowLyricsDisplay(false);
 
-    // Auto-generate output file path
-    const kaiPath = filePath.replace(/\.[^.]+$/, '.kai');
-    setOutputFile(kaiPath);
+    // Auto-generate output file path based on format
+    const extension = outputFormat === 'm4a' ? '.stem.m4a' : '.kai';
+    const outputPath = filePath.replace(/\.[^.]+$/, extension);
+    setOutputFile(outputPath);
 
     // Read metadata
     const metadata = await window.electronAPI.readAudioMetadata(filePath);
     console.log('Metadata result:', metadata);
     const title = metadata.title;
     const artist = metadata.artist;
+
+    // Extract song duration for progress calculation
+    if (metadata.duration || metadata.duration_seconds) {
+      setSongDuration(metadata.duration || metadata.duration_seconds);
+    }
 
     // Fetch lyrics if we have title and artist
     if (title && artist) {
@@ -103,15 +165,16 @@ export default function ConvertScreen() {
 
     // Auto-generate output file path in user's home directory
     if (youtubeTitle && youtubeArtist) {
-      const kaiFileName = `${youtubeArtist} - ${youtubeTitle}.kai`;
+      const extension = outputFormat === 'm4a' ? '.stem.m4a' : '.kai';
+      const outputFileName = `${youtubeArtist} - ${youtubeTitle}${extension}`;
 
       // Get user's home directory and create full path
       if (window.electronAPI?.getHomeDirectory) {
         const homeDir = await window.electronAPI.getHomeDirectory();
-        setOutputFile(`${homeDir}/${kaiFileName}`);
+        setOutputFile(`${homeDir}/${outputFileName}`);
       } else {
         // Fallback if API not available
-        setOutputFile(kaiFileName);
+        setOutputFile(outputFileName);
       }
 
       // Fetch lyrics if we have title and artist
@@ -134,8 +197,9 @@ export default function ConvertScreen() {
         const folderPath = await window.electronAPI.selectOutputFolder();
         if (folderPath && inputFile) {
           const fileName = inputFile.split('/').pop().split('\\').pop();
-          const kaiFileName = fileName.replace(/\.[^.]+$/, '.kai');
-          setOutputFile(`${folderPath}/${kaiFileName}`);
+          const extension = outputFormat === 'm4a' ? '.stem.m4a' : '.kai';
+          const outputFileName = fileName.replace(/\.[^.]+$/, extension);
+          setOutputFile(`${folderPath}/${outputFileName}`);
         }
       }
     } catch (error) {
@@ -212,10 +276,11 @@ export default function ConvertScreen() {
         title: inputMode === 'youtube' ? youtubeTitle : null,
         artist: inputMode === 'youtube' ? youtubeArtist : null,
         outputFile,
+        outputFormat,  // Pass format: 'kai' or 'm4a'
         whisperModel,
         language: language === 'auto' ? 'en' : language,
         fourStems,
-        features: ['f0', 'tempo'],  // Enable musical analysis by default
+        features: ['f0'],  // Enable pitch detection for karaoke
         referenceLyrics: referenceLyrics || null,  // Pass pre-fetched lyrics to avoid second lookup
         llm: {
           enabled: llmSettings.enabled !== undefined ? llmSettings.enabled : true,
@@ -246,6 +311,8 @@ export default function ConvertScreen() {
     } finally {
       setIsProcessing(false);
       setProgress(null);
+      setLiveLyric(null); // Clear live lyric when processing completes
+      setWhisperProgress(null); // Clear Whisper progress when processing completes
       if (unsubscribe) unsubscribe();
     }
   }
@@ -259,6 +326,8 @@ export default function ConvertScreen() {
   // Get progress message
   function getProgressMessage() {
     if (!progress) return '';
+    // Show stem-specific messages from Demucs tqdm parsing (e.g., "Separating Vocals stem...")
+    // These come through as stage='demucs' with per-stem messages
     return progress.message || progress.stage || '';
   }
 
@@ -268,9 +337,32 @@ export default function ConvertScreen() {
     return progress.stage === 'step_4' || progress.message?.includes('Transcribing');
   }
 
+  // Format seconds as MM:SS
+  function formatTime(seconds) {
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  }
+
+  // Get Whisper progress percentage
+  function getWhisperProgressPercent() {
+    if (!whisperProgress?.currentTime || !songDuration) return 0;
+    return Math.min(100, (whisperProgress.currentTime / songDuration) * 100);
+  }
+
+  // Get confidence color for progress bar
+  function getConfidenceColor() {
+    const confidence = whisperProgress?.confidence;
+    if (!confidence) return 'bg-blue-600'; // Default blue
+    if (confidence >= 0.7) return 'bg-blue-600'; // High confidence: blue
+    if (confidence >= 0.5) return 'bg-cyan-500'; // Medium confidence: cyan
+    return 'bg-gray-500'; // Low confidence: gray
+  }
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">🎵 Convert Audio to KAI</h1>
+      <h1 className="text-3xl font-bold mb-6">🎵 Convert Audio to Karaoke</h1>
 
       {/* Input Mode Toggle */}
       <div className="card p-6 mb-6">
@@ -629,7 +721,7 @@ export default function ConvertScreen() {
               disabled={isProcessing}
               className="mr-2"
             />
-            <span>2-stem (vocals + music) - Smaller KAI file</span>
+            <span>2-stem (vocals + music) - Smaller file</span>
           </label>
           <label className="flex items-center mt-2">
             <input
@@ -643,6 +735,35 @@ export default function ConvertScreen() {
             <span>4-stem (vocals + drums + bass + other)</span>
           </label>
         </div>
+
+        <div className="mt-4">
+          <p className="text-sm font-medium mb-2">Output Format</p>
+          <label className="flex items-center">
+            <input
+              type="radio"
+              name="format"
+              checked={outputFormat === 'kai'}
+              onChange={() => setOutputFormat('kai')}
+              disabled={isProcessing}
+              className="mr-2"
+            />
+            <span>KAI (ZIP) - Smaller file (~16 MB), kai-player only</span>
+          </label>
+          <label className="flex items-center mt-2">
+            <input
+              type="radio"
+              name="format"
+              checked={outputFormat === 'm4a'}
+              onChange={() => setOutputFormat('m4a')}
+              disabled={isProcessing}
+              className="mr-2"
+            />
+            <span>M4A Stems - Universal format (~34 MB), works in DJ software</span>
+          </label>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+            M4A format: Compatible with Mixxx, Traktor, and kai-player. Uses NI Stems + karaoke extensions.
+          </p>
+        </div>
       </div>
 
       {/* Progress */}
@@ -652,10 +773,24 @@ export default function ConvertScreen() {
           <div className="space-y-2">
             <div className="flex justify-between text-sm mb-1">
               <span>{getProgressMessage()}</span>
-              {!isWhisperStage() && <span>{Math.round(getProgressPercent())}%</span>}
+              {/* Show time-based progress during Whisper if we have duration */}
+              {isWhisperStage() && whisperProgress?.currentTime && songDuration ? (
+                <span>
+                  {formatTime(whisperProgress.currentTime)} / {formatTime(songDuration)} ({Math.round(getWhisperProgressPercent())}%)
+                </span>
+              ) : !isWhisperStage() ? (
+                <span>{Math.round(getProgressPercent())}%</span>
+              ) : null}
             </div>
             <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-              {isWhisperStage() ? (
+              {isWhisperStage() && whisperProgress?.currentTime && songDuration ? (
+                // Time-based progress with confidence coloring
+                <div
+                  className={`h-2 rounded-full transition-all ${getConfidenceColor()}`}
+                  style={{ width: `${getWhisperProgressPercent()}%` }}
+                />
+              ) : isWhisperStage() ? (
+                // Indeterminate shimmer when we don't have duration yet
                 <div className="h-2 bg-gradient-to-r from-blue-400 via-blue-600 to-blue-400 rounded-full animate-pulse bg-[length:200%_100%]"
                      style={{ animation: 'pulse 1.5s ease-in-out infinite, shimmer 2s linear infinite', width: '100%' }}>
                   <style>{`
@@ -666,12 +801,31 @@ export default function ConvertScreen() {
                   `}</style>
                 </div>
               ) : (
+                // Regular determinate progress for other stages
                 <div
                   className="h-2 bg-blue-600 rounded-full transition-all"
                   style={{ width: `${getProgressPercent()}%` }}
                 />
               )}
             </div>
+            {/* Live lyrics and confidence during Whisper transcription */}
+            {isWhisperStage() && (liveLyric || whisperProgress?.confidence !== undefined) && (
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 space-y-1">
+                {liveLyric && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 italic truncate">
+                    🎤 {liveLyric.length > 100 ? liveLyric.substring(0, 100) + '...' : liveLyric}
+                  </p>
+                )}
+                {whisperProgress?.confidence !== undefined && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Confidence: {Math.round(whisperProgress.confidence * 100)}%
+                    <span className={`ml-2 ${whisperProgress.confidence >= 0.7 ? 'text-blue-600 dark:text-blue-400' : whisperProgress.confidence >= 0.5 ? 'text-cyan-600 dark:text-cyan-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                      {whisperProgress.confidence >= 0.7 ? '(High)' : whisperProgress.confidence >= 0.5 ? '(Medium)' : '(Low)'}
+                    </span>
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -682,6 +836,19 @@ export default function ConvertScreen() {
           <h2 className="text-lg font-semibold mb-2 text-green-800 dark:text-green-300">
             ✓ Conversion Complete!
           </h2>
+
+          {/* AI Correction Warning */}
+          {result.llm_stats && result.llm_stats.failed && (
+            <div className="mb-3 p-3 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded-lg">
+              <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                <strong>⚠ AI lyric correction failed:</strong> {result.llm_stats.error || 'Unknown error'}
+              </p>
+              <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                Lyrics were transcribed but not corrected by AI. Check your API key in Settings if you want AI correction.
+              </p>
+            </div>
+          )}
+
           <div className="space-y-1 text-sm">
             <p className="text-gray-700 dark:text-gray-300">
               <strong>Output file:</strong> {result.output_file}
@@ -737,7 +904,7 @@ export default function ConvertScreen() {
             : 'btn-primary'
         }`}
       >
-        {isProcessing ? 'Processing...' : 'Convert to KAI'}
+        {isProcessing ? 'Processing...' : outputFormat === 'm4a' ? 'Convert to M4A Stems' : 'Convert to KAI'}
       </button>
 
       {((inputMode === 'file' && inputFile) || (inputMode === 'youtube' && youtubeUrl)) && !isProcessing && (

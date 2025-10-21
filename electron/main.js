@@ -6,7 +6,6 @@ import Store from 'electron-store';
 import { PythonBridge } from './python-bridge.js';
 import { SystemChecker } from './system-checker.js';
 import { DownloadManager } from './download-manager.js';
-import { setupPython } from './setup-helper.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -116,188 +115,10 @@ async function createWindow() {
   });
 }
 
-// Check if Python needs to be set up
-async function checkPythonSetup() {
-  if (isDev) {
-    // In dev mode, just check if python-standalone exists
-    const devPythonPath = join(__dirname, '..', 'python-standalone');
-    const pythonExe = process.platform === 'win32'
-      ? join(devPythonPath, 'python.exe')
-      : join(devPythonPath, 'bin', 'python3');
-
-    if (!existsSync(pythonExe)) {
-      await dialog.showMessageBox({
-        type: 'error',
-        title: 'Python Not Found',
-        message: 'Python setup required for development',
-        detail: 'Please run: npm run setup:python',
-        buttons: ['Exit']
-      });
-      app.quit();
-      return false;
-    }
-    return true;
-  }
-
-  // In production, check userData directory
-  const pythonDir = join(app.getPath('userData'), 'python');
-  const pythonExe = process.platform === 'win32'
-    ? join(pythonDir, 'python.exe')
-    : join(pythonDir, 'bin', 'python3');
-
-  if (!existsSync(pythonExe)) {
-    // First run - need to download Python
-    const response = await dialog.showMessageBox({
-      type: 'info',
-      title: 'First Time Setup',
-      message: 'KAI Converter - First Time Setup',
-      detail: 'KAI Converter needs to download Python and AI dependencies (~500MB).\n\nThis only happens once and requires an internet connection.\n\nSetup time: 5-10 minutes',
-      buttons: ['Continue', 'Exit'],
-      defaultId: 0,
-      cancelId: 1
-    });
-
-    if (response.response === 1) {
-      app.quit();
-      return false;
-    }
-
-    // Run setup
-    try {
-      const setupWindow = new BrowserWindow({
-        width: 500,
-        height: 300,
-        resizable: false,
-        minimizable: false,
-        maximizable: false,
-        autoHideMenuBar: true,
-        skipTaskbar: true,
-        title: 'Setting up KAI Converter...',
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true
-        }
-      });
-
-      setupWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body {
-              font-family: system-ui, -apple-system, sans-serif;
-              display: flex;
-              flex-direction: column;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              background: #f5f5f5;
-            }
-            .container {
-              text-align: center;
-              padding: 40px;
-              background: white;
-              border-radius: 8px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            h2 { margin: 0 0 20px 0; color: #333; }
-            #status {
-              margin: 20px 0;
-              color: #666;
-              font-size: 14px;
-            }
-            .progress-bar {
-              width: 400px;
-              height: 8px;
-              background: #e0e0e0;
-              border-radius: 4px;
-              overflow: hidden;
-              margin: 20px 0;
-            }
-            .progress-fill {
-              height: 100%;
-              background: linear-gradient(90deg, #4CAF50, #45a049);
-              width: 0%;
-              transition: width 0.3s ease;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <h2>Setting up KAI Converter</h2>
-            <div class="progress-bar">
-              <div class="progress-fill" id="progress"></div>
-            </div>
-            <div id="status">Initializing...</div>
-          </div>
-        </body>
-        </html>
-      `)}`);
-
-      const requirementsPath = join(process.resourcesPath, 'requirements.txt');
-
-      await setupPython(pythonDir, requirementsPath, (progress) => {
-        setupWindow.webContents.executeJavaScript(`
-          document.getElementById('progress').style.width = '${progress.percent}%';
-          document.getElementById('status').textContent = '${progress.message}';
-        `);
-      });
-
-      setupWindow.close();
-
-      await dialog.showMessageBox({
-        type: 'info',
-        title: 'Setup Complete',
-        message: 'Python setup completed successfully!',
-        detail: 'KAI Converter is now ready to use.',
-        buttons: ['OK']
-      });
-
-      return 'setup-completed'; // Signal that setup just completed
-    } catch (error) {
-      await dialog.showMessageBox({
-        type: 'error',
-        title: 'Setup Failed',
-        message: 'Failed to set up Python',
-        detail: error.message,
-        buttons: ['Exit']
-      });
-      app.quit();
-      return false;
-    }
-  }
-
-  return true;
-}
-
 // App lifecycle
 app.whenReady().then(async () => {
-  // Check and run Python setup if needed
-  const pythonReady = await checkPythonSetup();
-  if (!pythonReady) {
-    return;
-  }
-
-  // Initialize bridges now that app is ready
-  // If setup just completed, reinitialize to pick up new Python installation
-  const bridges = (pythonReady === 'setup-completed') ? reinitializeBridges() : getBridges();
-
-  // Check if Python is available before starting
-  if (!bridges.pythonBridge.pythonPath) {
-    console.error('\n❌ FATAL ERROR: Python not found!');
-    console.error('   Error:', bridges.pythonBridge.initError);
-
-    await dialog.showMessageBox({
-      type: 'error',
-      title: 'Python Error',
-      message: 'Failed to initialize Python',
-      detail: bridges.pythonBridge.initError,
-      buttons: ['Exit']
-    });
-    app.quit();
-    return;
-  }
+  // Initialize bridges (they gracefully handle missing Python)
+  getBridges();
 
   // Load and apply saved theme before creating window
   const savedTheme = getStore().get('theme', 'system');
@@ -389,10 +210,20 @@ ipcMain.handle('process-audio', async (event, options) => {
   }
 });
 
+// Reinitialize bridges (e.g., after Python is downloaded)
+ipcMain.handle('reinitialize-bridges', async () => {
+  try {
+    reinitializeBridges();
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to reinitialize bridges:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Download component
 ipcMain.handle('download-component', async (event, options) => {
   try {
-    const bridges = getBridges();
     const { component, variant, model } = options;
 
     let result;
@@ -409,33 +240,45 @@ ipcMain.handle('download-component', async (event, options) => {
 
     // Route to appropriate download method
     switch (component) {
+      case 'python':
+        result = await getBridges().downloadManager.downloadPython(progressCallback);
+        // If Python was just installed, reinitialize bridges so they pick up the new Python
+        if (result.success) {
+          console.log('[Main] Python installed - reinitializing bridges...');
+          reinitializeBridges();
+        }
+        break;
+
       case 'pytorch':
-        result = await bridges.downloadManager.downloadPyTorch(variant || 'auto', progressCallback);
+        result = await getBridges().downloadManager.downloadPyTorch(variant || 'auto', progressCallback);
         break;
 
       case 'demucs':
-        result = await bridges.downloadManager.downloadDemucs(progressCallback);
+        result = await getBridges().downloadManager.downloadDemucs(progressCallback);
         break;
 
       case 'whisper':
-        result = await bridges.downloadManager.downloadWhisper(progressCallback);
+        result = await getBridges().downloadManager.downloadWhisper(progressCallback);
+        break;
+
+      case 'core-deps':
+        result = await getBridges().downloadManager.downloadCoreDeps(progressCallback);
         break;
 
       case 'whisper-model':
-        result = await bridges.downloadManager.downloadWhisperModel(model || 'small', progressCallback);
+        result = await getBridges().downloadManager.downloadWhisperModel(model || 'small', progressCallback);
         break;
 
       case 'demucs-model':
-        result = await bridges.downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
+        result = await getBridges().downloadManager.downloadDemucsModel(model || 'htdemucs_ft', progressCallback);
         break;
 
       case 'ffmpeg':
-        result = await bridges.downloadManager.downloadFfmpeg(progressCallback);
+        result = await getBridges().downloadManager.downloadFfmpeg(progressCallback);
         break;
 
-      case 'yt-dlp':
-        result = await bridges.downloadManager.downloadYtDlp(progressCallback);
-        break;
+      // Note: yt-dlp is installed via pip in core-deps (requirements-core.txt)
+      // Note: mp4box is no longer used - we use pymp4 library instead
 
       default:
         return {

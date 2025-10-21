@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
+import { homedir, platform } from 'os';
 import { app } from 'electron';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -34,15 +35,28 @@ export class PythonBridge {
   }
 
   /**
+   * Get cache directory (same as DownloadManager)
+   */
+  _getCacheDir() {
+    const plat = platform();
+    if (plat === 'darwin') {
+      return join(homedir(), 'Library', 'Caches', 'KAI-Converter');
+    } else if (plat === 'win32') {
+      return join(homedir(), 'AppData', 'Local', 'KAI-Converter', 'Cache');
+    } else {
+      return join(homedir(), '.cache', 'kai-converter');
+    }
+  }
+
+  /**
    * Get the Python executable path
-   * - Development: use python-standalone in project directory
-   * - Production: use Python in userData directory (downloaded on first run)
+   * Always uses cache directory (same in dev and production)
    */
   _getPythonPath() {
     const platform = process.platform;
 
-    // Helper to get standalone Python executable path
-    const getStandalonePath = (baseDir) => {
+    // Helper to get Python executable path
+    const getPythonExePath = (baseDir) => {
       if (platform === 'win32') {
         return join(baseDir, 'python.exe');
       } else {
@@ -50,29 +64,16 @@ export class PythonBridge {
       }
     };
 
-    if (app.isPackaged) {
-      // Production: use Python in userData directory
-      const pythonDir = join(app.getPath('userData'), 'python');
-      const pythonPath = getStandalonePath(pythonDir);
+    // Always use cache directory - same location in dev and production
+    const pythonDir = join(this._getCacheDir(), 'python');
+    const pythonPath = getPythonExePath(pythonDir);
 
-      if (existsSync(pythonPath)) {
-        console.log('[PythonBridge] Using Python:', pythonPath);
-        return pythonPath;
-      } else {
-        console.error('[PythonBridge] ❌ Python not found in userData');
-        throw new Error('Python not installed. Please run first-time setup.');
-      }
+    if (existsSync(pythonPath)) {
+      console.log('[PythonBridge] Using Python:', pythonPath);
+      return pythonPath;
     } else {
-      // Development: use local standalone Python
-      const standalonePython = getStandalonePath(join(__dirname, '..', 'python-standalone'));
-      if (existsSync(standalonePython)) {
-        console.log('[PythonBridge] Using standalone Python:', standalonePython);
-        return standalonePython;
-      } else {
-        console.error('[PythonBridge] ❌ Standalone Python not found!');
-        console.error('[PythonBridge] Run: npm run setup:python');
-        throw new Error('Python not found. Please run: npm run setup:python');
-      }
+      console.error('[PythonBridge] ❌ Python not found in cache');
+      throw new Error('Python not installed. Please run first-time setup.');
     }
   }
 
@@ -90,7 +91,8 @@ export class PythonBridge {
   }
 
   /**
-   * Get the bundled binaries path (ffmpeg, yt-dlp)
+   * Get the bundled binaries path (ffmpeg only)
+   * Note: yt-dlp is installed via pip, not bundled as a binary
    */
   _getBinPath() {
     if (app.isPackaged) {
@@ -103,10 +105,11 @@ export class PythonBridge {
   }
 
   /**
-   * Get environment with bundled binaries in PATH
+   * Get environment with bundled binaries in PATH and TORCH_HOME for models
    */
   _getEnvWithBinPath() {
     const binPath = this._getBinPath();
+    const cacheDir = this._getCacheDir();
     const env = { ...process.env };
 
     // Add bundled bin directory to PATH (at the front so it takes priority)
@@ -114,6 +117,11 @@ export class PythonBridge {
       const pathSeparator = process.platform === 'win32' ? ';' : ':';
       env.PATH = `${binPath}${pathSeparator}${env.PATH || ''}`;
     }
+
+    // Set TORCH_HOME to consolidate model downloads to app's cache
+    env.TORCH_HOME = join(cacheDir, 'models', 'torch');
+    env.HF_HOME = join(cacheDir, 'models', 'huggingface');
+    env.KAI_WHISPER_CACHE = join(cacheDir, 'models', 'whisper');
 
     return env;
   }
@@ -148,6 +156,7 @@ export class PythonBridge {
         title: options.title || null,
         artist: options.artist || null,
         outputFile: options.outputFile || null,
+        outputFormat: options.outputFormat || 'kai',  // 'kai' or 'm4a'
         whisperModel: options.whisperModel || 'small',
         language: options.language || 'en',
         fourStems: options.fourStems || false,
@@ -263,6 +272,7 @@ try:
     result = api.process_audio(
         input_file=input_file,
         output_file=args['outputFile'],
+        output_format=args['outputFormat'],
         whisper_model=args['whisperModel'],
         language=args['language'],
         four_stems=args['fourStems'],
@@ -344,11 +354,11 @@ finally:
           if (!line.trim()) continue;
 
           // Parse tqdm progress bars (Demucs)
-          // Format 1: Per-stem progress like "vocals: 45%|████▌     | 45/100"
-          const stemMatch = line.match(/(vocals|drums|bass|other):\s*(\d+)%/i);
-          if (stemMatch && progressCallback) {
-            const stemName = stemMatch[1].charAt(0).toUpperCase() + stemMatch[1].slice(1);
-            const percent = parseInt(stemMatch[2]);
+          // Format 1: Demucs description with stem name like "Separating track vocals: 45%|..." or "vocals: 45%|..."
+          const stemDescMatch = line.match(/(?:Separating track |Separating )?(vocals|drums|bass|other):\s*(\d+)%/i);
+          if (stemDescMatch && progressCallback) {
+            const stemName = stemDescMatch[1].charAt(0).toUpperCase() + stemDescMatch[1].slice(1);
+            const percent = parseInt(stemDescMatch[2]);
             progressCallback({
               stage: 'demucs',
               percent: percent,
@@ -372,9 +382,13 @@ finally:
             // Cap stem counter to not exceed total
             const currentStem = Math.min(stemCounter + 1, totalStems);
 
-            // If we're seeing multiple passes, show stem counter
-            const message = stemCounter > 0 && stemCounter < totalStems
-              ? `Separating stems (${currentStem} of ${totalStems})...`
+            // Map stem counter to stem names
+            const stemNames = ['Vocals', 'Drums', 'Bass', 'Other'];
+            const currentStemName = stemCounter < stemNames.length ? stemNames[stemCounter] : 'Unknown';
+
+            // Show stem name and counter
+            const message = stemCounter >= 0 && stemCounter < totalStems
+              ? `Separating ${currentStemName} stem (${currentStem}/${totalStems})...`
               : `Separating stems...`;
 
             progressCallback({
