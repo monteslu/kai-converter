@@ -60,7 +60,10 @@ export default function App() {
           systemInfo.python?.available &&
           systemInfo.pytorch?.available &&
           systemInfo.demucs?.available &&
-          systemInfo.whisper?.available;
+          systemInfo.whisper?.available &&
+          systemInfo.ffmpeg?.available;
+          // Note: yt-dlp is installed via pip in core-deps
+          // Note: mp4box is no longer used - we use pymp4 library instead
 
         setSetupComplete(isComplete);
       }

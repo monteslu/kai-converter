@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Download platform-specific binaries (ffmpeg, yt-dlp)
- * These are bundled with the app for a fully self-contained experience
+ * Download platform-specific binaries (ffmpeg only)
+ * yt-dlp is installed via pip in the Python environment
  */
 
 import https from 'https';
@@ -29,14 +29,6 @@ const BINARIES = {
       filename: 'ffmpeg.zip',
       extract: 'ffmpeg',
     },
-    'yt-dlp': {
-      urls: [
-        'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos',
-      ],
-      filename: 'yt-dlp',
-      extract: null, // Direct binary
-      pipFallback: 'yt-dlp', // Can install via pip as fallback
-    },
   },
   win32: {
     ffmpeg: {
@@ -47,14 +39,6 @@ const BINARIES = {
       filename: 'ffmpeg.zip',
       extract: 'ffmpeg.exe',
     },
-    'yt-dlp': {
-      urls: [
-        'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe',
-      ],
-      filename: 'yt-dlp.exe',
-      extract: null,
-      pipFallback: 'yt-dlp', // Can install via pip as fallback
-    },
   },
   linux: {
     ffmpeg: {
@@ -63,14 +47,6 @@ const BINARIES = {
       ],
       filename: 'ffmpeg.zip',
       extract: 'ffmpeg',
-    },
-    'yt-dlp': {
-      urls: [
-        'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp',
-      ],
-      filename: 'yt-dlp',
-      extract: null,
-      pipFallback: 'yt-dlp', // Can install via pip as fallback
     },
   },
 };
@@ -233,20 +209,6 @@ async function downloadBinary(name, config) {
   }
 
   if (lastError) {
-    // Try pip fallback if available
-    if (config.pipFallback) {
-      console.log(`  All download sources failed, trying pip installation...`);
-      try {
-        const pythonPath = join(ROOT_DIR, 'python-standalone', 'bin', 'python3');
-        if (existsSync(pythonPath)) {
-          execSync(`"${pythonPath}" -m pip install ${config.pipFallback}`, { stdio: 'inherit' });
-          console.log(`✅ ${name} installed via pip`);
-          return; // Success via pip, no need to extract
-        }
-      } catch (pipError) {
-        console.log(`  ✗ pip installation also failed: ${pipError.message}`);
-      }
-    }
     throw new Error(`All download sources failed for ${name}: ${lastError.message}`);
   }
 

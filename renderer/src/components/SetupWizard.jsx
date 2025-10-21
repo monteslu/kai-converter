@@ -14,7 +14,7 @@ export default function SetupWizard({ onComplete }) {
 
   // LLM settings
   const [llmEnabled, setLlmEnabled] = useState(true);
-  const [llmProvider, setLlmProvider] = useState('claude');
+  const [llmProvider, setLlmProvider] = useState('openai');
   const [claudeApiKey, setClaudeApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -69,6 +69,23 @@ export default function SetupWizard({ onComplete }) {
   function getRequiredDownloads() {
     const required = [];
 
+    // Python must be downloaded FIRST (required for all pip packages)
+    if (!systemInfo?.python?.available) {
+      required.push({
+        component: 'python',
+        name: 'Python 3.12',
+        required: true,
+      });
+    }
+
+    // Core dependencies MUST be installed right after Python (mutagen, scipy, etc.)
+    // Without these, the app will not function at all
+    required.push({
+      component: 'core-deps',
+      name: 'Core Python Dependencies (mutagen, scipy, numpy, etc.)',
+      required: true,
+    });
+
     if (!systemInfo?.pytorch?.available) {
       required.push({
         component: 'pytorch',
@@ -121,14 +138,8 @@ export default function SetupWizard({ onComplete }) {
       });
     }
 
-    // Check for yt-dlp - OPTIONAL (only needed for YouTube tab)
-    if (!systemInfo?.ytdlp?.available) {
-      required.push({
-        component: 'yt-dlp',
-        name: 'yt-dlp (YouTube support)',
-        required: false,
-      });
-    }
+    // Note: yt-dlp is installed via pip in core-deps (requirements-core.txt)
+    // Note: mp4box is no longer needed - we use pymp4 library instead
 
     return required;
   }
@@ -413,18 +424,7 @@ export default function SetupWizard({ onComplete }) {
                             onChange={(e) => setLlmProvider(e.target.value)}
                             className="mr-2"
                           />
-                          <span>Anthropic Claude (recommended)</span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="llmProvider"
-                            value="openai"
-                            checked={llmProvider === 'openai'}
-                            onChange={(e) => setLlmProvider(e.target.value)}
-                            className="mr-2"
-                          />
-                          <span>OpenAI (GPT-4o)</span>
+                          <span>Anthropic Claude</span>
                         </label>
                         <label className="flex items-center">
                           <input
@@ -446,7 +446,18 @@ export default function SetupWizard({ onComplete }) {
                             onChange={(e) => setLlmProvider(e.target.value)}
                             className="mr-2"
                           />
-                          <span>Local LLM (LM Studio) - No API key needed</span>
+                          <span>Local LLM (LM Studio)</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="llmProvider"
+                            value="openai"
+                            checked={llmProvider === 'openai'}
+                            onChange={(e) => setLlmProvider(e.target.value)}
+                            className="mr-2"
+                          />
+                          <span>OpenAI (GPT-4o)</span>
                         </label>
                       </div>
                     </div>
@@ -633,16 +644,6 @@ export default function SetupWizard({ onComplete }) {
                   );
                 })}
               </div>
-
-              {/* Show warning if yt-dlp failed */}
-              {downloadResults['yt-dlp'] && !downloadResults['yt-dlp'].success && (
-                <div className="mt-6 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg max-w-md mx-auto">
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 text-left">
-                    <strong>Note:</strong> YouTube support (yt-dlp) is unavailable. The YouTube tab will be disabled.
-                    You can still convert local audio files.
-                  </p>
-                </div>
-              )}
 
               <p className="text-gray-600 dark:text-gray-400 mt-6">
                 {Object.values(downloadResults).every(r => r.success !== false)

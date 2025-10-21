@@ -1,7 +1,27 @@
-# Core requirements (install these first)
-numpy>=1.21.0
-torch>=2.0.0
-torchaudio>=2.0.0
-demucs>=4.0.0
+# Core dependencies installed BEFORE PyTorch
+# These packages do NOT depend on PyTorch and can be installed first
+# Note: PyTorch (torch, torchaudio) is installed separately via downloadPyTorch()
+# Note: torchcrepe is installed AFTER PyTorch (as part of downloadPyTorch())
+# Note: Demucs and Whisper are installed separately via downloadDemucs() and downloadWhisper()
+
+# Audio processing
+yt-dlp>=2024.10.0  # YouTube downloader
+numpy>=1.21.0,<2.0  # Must be <2.0 for scipy compatibility
 scipy>=1.7.0
-mutagen>=1.45.0
+soundfile>=0.12.0
+pydub>=0.25.0
+pyloudnorm>=0.1.0
+ffmpeg-python>=0.2.0
+dtw-python>=1.2.0
+phonemizer>=3.0.0
+
+# Metadata and file handling
+mutagen>=1.47.0  # MP4 atom manipulation for M4A karaoke support
+beautifulsoup4>=4.12.0
+requests>=2.25.0
+click>=8.0.0
+
+# LLM integrations for lyric correction
+openai>=1.0.0  # For lyrics correction with OpenAI GPT models
+google-generativeai>=0.3.0  # For lyrics correction with Google Gemini models
+anthropic>=0.18.0  # For lyrics correction with Anthropic Claude models

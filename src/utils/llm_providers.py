@@ -7,8 +7,11 @@ Supports OpenAI, local LM Studio, Anthropic Claude, and other OpenAI-compatible 
 import os
 import json
 import requests
+import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 class LLMProvider(ABC):
     """Abstract base class for LLM providers."""
@@ -43,7 +46,21 @@ class OpenAIProvider(LLMProvider):
             temperature=temperature,
             max_tokens=16384  # GPT-4o API supports up to 16,384 output tokens
         )
-        return response.choices[0].message.content
+
+        # Log finish_reason to debug truncation issues
+        finish_reason = response.choices[0].finish_reason
+        content = response.choices[0].message.content
+        usage = response.usage
+
+        # ALWAYS log finish_reason and response details for debugging
+        logger.info(f"OpenAI finish_reason: '{finish_reason}'")
+        logger.info(f"OpenAI response length: {len(content)} characters")
+        logger.info(f"OpenAI usage: prompt_tokens={usage.prompt_tokens}, completion_tokens={usage.completion_tokens}, total_tokens={usage.total_tokens}")
+
+        if finish_reason != "stop":
+            logger.warning(f"OpenAI finished with reason '{finish_reason}' instead of 'stop' - response may be incomplete")
+
+        return content
 
 class LMStudioProvider(LLMProvider):
     """Local LM Studio provider (OpenAI-compatible API)."""

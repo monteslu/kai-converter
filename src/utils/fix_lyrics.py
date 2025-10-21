@@ -258,9 +258,13 @@ def create_prompt(transcribed_lines, correct_lyrics, song_data=None):
         })
     
     # Build initial prompt
-    prompt = f"""TRANSCRIPTION ERROR CORRECTION TASK - READ ALL INSTRUCTIONS CAREFULLY
+    prompt = f"""AUTOMATED SPEECH RECOGNITION (ASR) ERROR CORRECTION TASK
 
-YOUR TASK: Fix ONLY obvious transcription errors. DO NOT REWRITE LYRICS.
+CONTEXT: You are correcting errors from an automated speech-to-text system (Whisper AI) that transcribed sung vocals.
+The system sometimes mishears words due to singing pronunciation, background music, and audio quality.
+
+YOUR TASK: Fix ONLY obvious speech recognition errors where the ASR clearly misheard spoken/sung words.
+DO NOT rewrite or reproduce lyrics - only correct technical ASR mishearings.
 """
 
     # Add vocal pitch contour if available
@@ -279,19 +283,19 @@ This shows vocal activity and delivery patterns. Use for identifying gaps where 
 """
 
     prompt += f"""
-REFERENCE LYRICS (FOR CONTEXT ONLY - DO NOT COPY FROM THIS):
+REFERENCE TEXT (for identifying ASR mishearings - DO NOT copy verbatim):
 {correct_lyrics}
 
-TRANSCRIBED LINES TO FIX:
+ASR OUTPUT TO CORRECT (automated speech recognition results):
 {json.dumps(simple_lines, indent=2)}
 
 !!!!! CRITICAL RULES - FOLLOW EXACTLY !!!!!
 
-1. YOU ARE FIXING TRANSCRIPTION ERRORS, NOT REWRITING LYRICS
-2. DO NOT REPLACE ENTIRE PHRASES WITH DIFFERENT LYRICS FROM THE SONG
-3. DO NOT SUBSTITUTE LYRICS FROM OTHER PARTS OF THE REFERENCE
-4. ONLY FIX OBVIOUS PHONETIC MISHEARINGS WHERE TRANSCRIPTION IS CLEARLY WRONG
-5. AT LEAST 80% OF ORIGINAL WORDS MUST REMAIN IN ANY CORRECTION
+1. YOU ARE FIXING ASR/STT ERRORS, NOT REPRODUCING OR REWRITING TEXT
+2. ONLY correct obvious phonetic mishearings where automated speech recognition failed
+3. DO NOT substitute entire phrases even if they don't match the reference
+4. ONLY fix clear technical errors (e.g., "foamy" → "for me", "sancti" → "sanity")
+5. AT LEAST 80% of original words MUST remain - this is error correction, not rewriting
 
 EXAMPLES OF VALID CORRECTIONS (small phonetic fixes):
 - "foamy" → "for me" (obvious mishearing)
@@ -447,7 +451,7 @@ def fix_lyrics_with_llm(transcribed_lines, correct_lyrics, api_key=None, llm_con
         start_time = time.time()
 
         messages = [
-            {"role": "system", "content": "You are a precise JSON editor that fixes transcription errors while preserving timing data. You MUST return ONLY valid JSON with ALL property names in double quotes. Use strict JSON format, NOT JavaScript object notation."},
+            {"role": "system", "content": "You are an automated speech recognition (ASR) error correction specialist. You fix technical errors from speech-to-text systems (mishearings, phonetic errors, cut-off words) while preserving the original transcription structure. You do NOT rewrite, reproduce, or generate content. Return ONLY valid JSON with ALL property names in double quotes."},
             {"role": "user", "content": prompt}
         ]
 

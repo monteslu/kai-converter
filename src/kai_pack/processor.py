@@ -16,6 +16,8 @@ from .metadata import MetadataExtractor
 from .analysis import MusicalAnalyzer
 from .song_json import SongJsonGenerator
 from .packaging import KaiPackager
+from .m4a_packaging import StemsM4aPackager
+from .stems_enhancer import StemsKaraokeEnhancer
 from utils.lyrics_utils import prepare_whisper_context, save_lyrics_temp_info
 
 
@@ -40,7 +42,12 @@ class KaiProcessor:
         silence_threshold: int = -20,
         vocal_pitch_type: str = "midi_cents",
         verbose: bool = False,
-        progress_callback: Optional[Any] = None
+        progress_callback: Optional[Any] = None,
+        llm_enabled: bool = False,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_api_key: Optional[str] = None,
+        llm_base_url: Optional[str] = None
     ):
         self.sample_rate = sample_rate
         self.model_name = model_name
@@ -49,6 +56,11 @@ class KaiProcessor:
         self.lyrics_url = lyrics_url
         self.reference_lyrics = reference_lyrics
         self.progress_callback = progress_callback
+        self.llm_enabled = llm_enabled
+        self.llm_provider = llm_provider
+        self.llm_model = llm_model
+        self.llm_api_key = llm_api_key
+        self.llm_base_url = llm_base_url
 
         # Initialize components
         self.audio_processor = AudioProcessor(sample_rate=sample_rate)
@@ -73,6 +85,11 @@ class KaiProcessor:
         )
         self.song_json_generator = SongJsonGenerator()
         self.packager = KaiPackager()
+        self.m4a_packager = StemsM4aPackager()
+        self.stems_enhancer = StemsKaraokeEnhancer(
+            lyrics_transcriber=self.lyrics_transcriber,
+            musical_analyzer=self.musical_analyzer
+        )
 
     def _emit_progress(self, step: int, total: int, message: str, sub_progress: float = 0.0) -> None:
         """Emit progress update if callback is registered.
@@ -279,6 +296,9 @@ class KaiProcessor:
                     logger.warning("⚠ LRCLIB lookup failed - proceeding without vocabulary hints")
 
                 logger.info("Starting smart chunking and transcription...")
+
+                # Emit progress update to show transcription is starting
+                self._emit_progress(4, 9, f"Transcribing vocals with Whisper{whisper_device_info}...", 0.25)
 
                 start_step = datetime.utcnow()
                 alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio, initial_prompt=initial_prompt)
@@ -523,6 +543,307 @@ class KaiProcessor:
                 logger.error(f"KAI processing failed: {str(e)}")
                 raise
                 
+    def process_to_m4a(
+        self,
+        input_audio: Path,
+        output_path: Path,
+        features: Optional[List[str]] = None,
+        metadata_overrides: Optional[Dict[str, str]] = None,
+        cover_art: Optional[Path] = None,
+        stems_profile: str = "STEMS-4",  # or "STEMS-2"
+        codec: str = "aac",  # or "alac"
+        bitrate: str = "256k"
+    ) -> Dict[str, Any]:
+        """
+        Process audio into M4A Stems format with karaoke extensions.
+
+        Args:
+            input_audio: Path to input audio file
+            output_path: Output .stem.m4a file path
+            features: List of features to extract (e.g., ['f0', 'tempo'])
+            metadata_overrides: Optional metadata overrides
+            cover_art: Optional cover art file
+            stems_profile: STEMS-4 or STEMS-2
+            codec: aac or alac
+            bitrate: AAC bitrate (ignored for ALAC)
+
+        Returns:
+            Dict with processing results and statistics
+        """
+        logger.info(f"Starting M4A Stems processing: {input_audio} -> {output_path}")
+
+        start_time = datetime.utcnow()
+        features = features or []
+
+        # Create temporary working directory
+        with tempfile.TemporaryDirectory(prefix="m4a_pack_") as temp_dir:
+            temp_path = Path(temp_dir)
+
+            try:
+                # Steps 1-4: Same as KAI processing (load, metadata, separation, transcription)
+                # Step 1: Load and preprocess audio
+                self._emit_progress(1, 9, "Loading and preprocessing audio...")
+                logger.info(f"Loading audio: {input_audio}")
+                audio_data, audio_info = self.audio_processor.load_and_preprocess(input_audio)
+                logger.info(f"✓ Audio loaded: {audio_info['duration_seconds']:.1f}s")
+
+                # Step 2: Extract metadata
+                self._emit_progress(2, 9, "Extracting metadata...")
+                metadata = self.metadata_extractor.extract_metadata(
+                    input_audio,
+                    overrides=metadata_overrides
+                )
+                metadata["song"].update({
+                    "duration_sec": audio_info["duration_seconds"],
+                    "sample_rate": audio_info["target_sample_rate"],
+                    "channels": 2
+                })
+                logger.info(f"✓ Metadata: {metadata['song'].get('title', 'Unknown')} - {metadata['song'].get('artist', 'Unknown')}")
+
+                # Step 3: Stem separation
+                device_info = f" on {self.stem_separator.device.upper()}"
+                self._emit_progress(3, 9, f"Separating stems with Demucs{device_info}...", 0.0)
+                logger.info(f"Separating stems with Demucs (device: {self.stem_separator.device})...")
+                stems = self.stem_separator.separate_stems(audio_data, self.sample_rate)
+                self._emit_progress(3, 9, f"✓ Stem separation complete{device_info}", 1.0)
+                logger.info(f"✓ Stems separated: {', '.join(stems.keys())}")
+
+                # Save stems as WAV for M4A packaging
+                stem_wav_files = {}
+                for stem_name, stem_audio in stems.items():
+                    wav_path = temp_path / f"{stem_name}.wav"
+                    self.audio_processor.save_wav(stem_audio, wav_path)
+                    stem_wav_files[stem_name] = wav_path
+
+                # Save mixdown as WAV
+                mixdown_wav = temp_path / "mixdown.wav"
+                self.audio_processor.save_wav(audio_data, mixdown_wav)
+
+                # Step 4: Transcribe lyrics
+                whisper_device = self.lyrics_transcriber.device if hasattr(self.lyrics_transcriber, 'device') else 'unknown'
+                whisper_device_info = f" on {whisper_device.upper()}" if whisper_device != 'unknown' else ""
+                self._emit_progress(4, 9, f"Transcribing lyrics with Whisper{whisper_device_info}...")
+                logger.info(f"Transcribing lyrics with Whisper...")
+
+                vocals_audio = stems.get("vocals")
+                if vocals_audio is None:
+                    raise ValueError("No vocals stem found for transcription")
+
+                title = metadata['song'].get('title', '')
+                artist = metadata['song'].get('artist', '')
+
+                # Prepare Whisper context
+                if not self.reference_lyrics:
+                    self._emit_progress(4, 9, f"Looking up lyrics for '{title}' on LRCLIB...", 0.1)
+                else:
+                    self._emit_progress(4, 9, f"Using pre-fetched lyrics for Whisper context...", 0.1)
+
+                initial_prompt, lyrics_temp_file = prepare_whisper_context(title, artist, self.lyrics_url, self.reference_lyrics)
+
+                if lyrics_temp_file:
+                    self._emit_progress(4, 9, f"✓ Found reference lyrics{whisper_device_info}", 0.2)
+                    logger.info("✓ Using reference lyrics for Whisper context")
+                else:
+                    self._emit_progress(4, 9, f"⚠ No reference lyrics{whisper_device_info}", 0.2)
+                    logger.warning("⚠ No reference lyrics found")
+
+                # Emit progress update to show transcription is starting
+                self._emit_progress(4, 9, f"Transcribing vocals with Whisper{whisper_device_info}...", 0.25)
+
+                alignment_data = self.lyrics_transcriber.transcribe_and_align(vocals_audio, initial_prompt=initial_prompt)
+                self._emit_progress(4, 9, f"✓ Transcription complete - {len(alignment_data.get('lines', []))} lines{whisper_device_info}", 1.0)
+                logger.info(f"✓ Transcribed {len(alignment_data.get('lines', []))} lines")
+
+                # Step 4.5: Apply LLM correction if enabled and reference lyrics are available
+                # This is done before packaging so the M4A file contains corrected lyrics
+                llm_stats = None
+                logger.info(f"LLM correction check: llm_enabled={self.llm_enabled}, has_reference_lyrics={bool(self.reference_lyrics)}, llm_provider={self.llm_provider}")
+                if self.llm_enabled and self.reference_lyrics and self.llm_provider:
+                    self._emit_progress(4, 9, "Applying AI lyric correction...", 0.95)
+                    logger.info("Applying LLM lyric correction...")
+                    try:
+                        from utils.fix_lyrics import fix_lyrics_with_llm
+                        import sys
+                        import io
+                        import time
+
+                        # Map GUI provider names to fix_lyrics provider names
+                        provider_map = {
+                            'claude': 'anthropic',
+                            'openai': 'openai',
+                            'gemini': 'gemini',
+                            'local': 'lmstudio'
+                        }
+
+                        fix_provider = provider_map.get(self.llm_provider, self.llm_provider)
+
+                        llm_config = {
+                            'provider': fix_provider,
+                            'model': self.llm_model,
+                            'api_key': self.llm_api_key,
+                            'base_url': self.llm_base_url
+                        }
+
+                        # Build minimal song_data for fix_lyrics_with_llm
+                        song_data = {
+                            'title': title,
+                            'artist': artist
+                        }
+
+                        # Retry logic (3 attempts)
+                        max_retries = 3
+                        llm_result = None
+
+                        for attempt in range(1, max_retries + 1):
+                            try:
+                                logger.info(f"LLM correction attempt {attempt}/{max_retries}")
+                                self._emit_progress(4, 9, f"AI correction attempt {attempt}/{max_retries}...", 0.95)
+
+                                # Suppress stdout from fix_lyrics_with_llm
+                                old_stdout = sys.stdout
+                                sys.stdout = io.StringIO()
+
+                                try:
+                                    llm_result = fix_lyrics_with_llm(
+                                        alignment_data.get('lines', []),
+                                        self.reference_lyrics,
+                                        llm_config=llm_config,
+                                        song_data=song_data
+                                    )
+                                finally:
+                                    sys.stdout = old_stdout
+
+                                # Check if we got a valid result
+                                if llm_result and len(llm_result) == 4 and llm_result[0] is not None:
+                                    logger.info(f"✓ LLM correction succeeded on attempt {attempt}")
+                                    break
+                                else:
+                                    logger.warning(f"LLM returned invalid result on attempt {attempt}/{max_retries}")
+                                    if attempt < max_retries:
+                                        logger.info(f"Retrying in 2 seconds...")
+                                        time.sleep(2)
+
+                            except Exception as e:
+                                logger.error(f"LLM exception on attempt {attempt}/{max_retries}: {e}")
+                                if attempt < max_retries:
+                                    logger.info(f"Retrying in 3 seconds...")
+                                    time.sleep(3)
+
+                        # Apply result if successful
+                        if llm_result and len(llm_result) == 4 and llm_result[0] is not None:
+                            corrected_lines, rejections, missing_lines, corrections_applied = llm_result
+                            alignment_data['lines'] = corrected_lines
+                            corrections_count = corrections_applied if isinstance(corrections_applied, int) else 0
+                            self._emit_progress(4, 9, f"✓ AI correction applied - {corrections_count} corrections", 0.98)
+                            logger.info(f"✓ LLM correction applied: {corrections_count} corrections")
+                            llm_stats = {
+                                "corrections_applied": corrections_count,
+                                "suggestions_made": corrections_count,
+                                "corrections_rejected": len(rejections) if rejections else 0,
+                                "failed": False
+                            }
+                        else:
+                            logger.warning(f"⚠ LLM correction failed after {max_retries} attempts")
+                            llm_stats = {
+                                "corrections_applied": 0,
+                                "suggestions_made": 0,
+                                "corrections_rejected": 0,
+                                "failed": True,
+                                "error": f"Invalid result after {max_retries} attempts"
+                            }
+
+                    except Exception as e:
+                        logger.warning(f"⚠ LLM correction failed: {e}")
+                        llm_stats = {
+                            "corrections_applied": 0,
+                            "suggestions_made": 0,
+                            "corrections_rejected": 0,
+                            "failed": True,
+                            "error": str(e)
+                        }
+                        # Continue with uncorrected lyrics
+
+                # Step 5: Musical analysis (if requested)
+                analysis_features = {}
+                if features:
+                    self._emit_progress(5, 9, "Extracting musical features...")
+                    logger.info(f"Extracting features: {', '.join(features)}")
+                    analysis_features = self.musical_analyzer.extract_features(
+                        vocals_audio, audio_data, features
+                    )
+                    logger.info(f"✓ Extracted {len(analysis_features)} features")
+                else:
+                    self._emit_progress(5, 9, "Skipping musical analysis...")
+                    logger.info("No features requested")
+
+                # Step 6-9: M4A packaging (different from KAI)
+                self._emit_progress(6, 9, "Packaging M4A Stems file...")
+                logger.info(f"Packaging M4A Stems file (profile: {stems_profile}, codec: {codec})...")
+
+                # Call M4A packager
+                packaging_result = self.m4a_packager.package_stems_m4a(
+                    output_path=output_path,
+                    stems_wav_files=stem_wav_files,
+                    mixdown_wav=mixdown_wav,
+                    lyrics_data=alignment_data,
+                    metadata=metadata,
+                    analysis_features=analysis_features,
+                    sample_rate=self.sample_rate,
+                    profile=stems_profile,
+                    codec=codec,
+                    bitrate=bitrate,
+                    use_mp4box=True,
+                    cover_art=cover_art
+                )
+
+                self._emit_progress(9, 9, "M4A packaging complete!", 1.0)
+
+                end_time = datetime.utcnow()
+                processing_time = (end_time - start_time).total_seconds()
+
+                # Compile final results
+                results = {
+                    "success": True,
+                    "output_file": str(output_path),
+                    "processing_time_seconds": processing_time,
+                    "input_info": {
+                        "file": str(input_audio),
+                        "lyrics_source": "AI_transcription",
+                        "duration_seconds": audio_info["duration_seconds"],
+                        "sample_rate": audio_info["target_sample_rate"]
+                    },
+                    "output_info": packaging_result,
+                    "processing_stats": {
+                        "stems_separated": len(stems),
+                        "lines_aligned": len(alignment_data.get("lines", [])),
+                        "features_extracted": len(analysis_features),
+                        "alignment_confidence": alignment_data.get("confidence", 0.5)
+                    },
+                    "stats": {
+                        "lines": len(alignment_data.get("lines", [])),
+                        "confidence": alignment_data.get("confidence", 0.0),
+                        "stems": len(stems),
+                        "features": len(analysis_features)
+                    }
+                }
+
+                # Add LLM stats if correction was attempted
+                if llm_stats:
+                    results["llm_stats"] = llm_stats
+
+                logger.info(f"✓ M4A Stems processing complete in {processing_time:.1f}s")
+                logger.info(f"  Output: {output_path}")
+                logger.info(f"  Size: {packaging_result.get('file_size_bytes', 0):,} bytes")
+                logger.info(f"  Lines: {len(alignment_data.get('lines', []))}")
+                if llm_stats and not llm_stats.get('failed'):
+                    logger.info(f"  LLM corrections: {llm_stats.get('corrections_applied', 0)} applied")
+
+                return results
+
+            except Exception as e:
+                logger.error(f"M4A Stems processing failed: {str(e)}")
+                raise
+
     def _compute_file_hash(self, file_path: Path) -> str:
         """Compute SHA256 hash of file."""
         sha256_hash = hashlib.sha256()
@@ -530,7 +851,7 @@ class KaiProcessor:
             for chunk in iter(lambda: f.read(4096), b""):
                 sha256_hash.update(chunk)
         return sha256_hash.hexdigest()
-        
+
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about loaded models and components."""
         return {

@@ -434,7 +434,7 @@ export default function SettingsScreen() {
                         value={claudeModel}
                         onChange={(e) => setClaudeModel(e.target.value)}
                       >
-                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (recommended)</option>
+                        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
                         <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (faster)</option>
                         <option value="claude-3-opus-20240229">Claude 3 Opus (most capable)</option>
                       </select>
@@ -473,7 +473,7 @@ export default function SettingsScreen() {
                         value={openaiModel}
                         onChange={(e) => setOpenaiModel(e.target.value)}
                       >
-                        <option value="gpt-4o">GPT-4o (recommended)</option>
+                        <option value="gpt-4o">GPT-4o</option>
                         <option value="gpt-4o-mini">GPT-4o mini (faster, cheaper)</option>
                         <option value="gpt-4-turbo">GPT-4 Turbo</option>
                       </select>
@@ -512,7 +512,7 @@ export default function SettingsScreen() {
                         value={geminiModel}
                         onChange={(e) => setGeminiModel(e.target.value)}
                       >
-                        <option value="gemini-1.5-flash">Gemini 1.5 Flash (recommended, fast)</option>
+                        <option value="gemini-1.5-flash">Gemini 1.5 Flash (fast)</option>
                         <option value="gemini-1.5-pro">Gemini 1.5 Pro (best quality)</option>
                         <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash (experimental)</option>
                       </select>

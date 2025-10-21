@@ -39,20 +39,28 @@ export class SystemChecker {
    * Check if Whisper model is downloaded
    */
   _checkWhisperModel(modelName) {
-    // Whisper stores models in ~/.cache/whisper/
-    const whisperCache = join(homedir(), '.cache', 'whisper');
-    const modelFile = join(whisperCache, `${modelName}.pt`);
-    return existsSync(modelFile);
+    // Check both old and new locations
+    const cacheDir = this._getCacheDir();
+    const newWhisperCache = join(cacheDir, 'models', 'whisper');
+    const oldWhisperCache = join(homedir(), '.cache', 'whisper');
+
+    const newModelFile = join(newWhisperCache, `${modelName}.pt`);
+    const oldModelFile = join(oldWhisperCache, `${modelName}.pt`);
+
+    return existsSync(newModelFile) || existsSync(oldModelFile);
   }
 
   /**
    * Check if Demucs model is downloaded
    */
   _checkDemucsModel(_modelName = 'htdemucs_ft') {
-    // Demucs stores models in torch hub cache
-    const torchCache = join(homedir(), '.cache', 'torch', 'hub', 'checkpoints');
-    // Check for the model file
-    return existsSync(torchCache);
+    // Check both old and new locations
+    const cacheDir = this._getCacheDir();
+    const newTorchCache = join(cacheDir, 'models', 'torch', 'hub', 'checkpoints');
+    const oldTorchCache = join(homedir(), '.cache', 'torch', 'hub', 'checkpoints');
+
+    // Just check if directory exists and has model files
+    return existsSync(newTorchCache) || existsSync(oldTorchCache);
   }
 
   /**
@@ -91,26 +99,6 @@ export class SystemChecker {
     return { available: false };
   }
 
-  /**
-   * Check if yt-dlp is available (system or downloaded)
-   */
-  _checkYtDlp() {
-    // First check system PATH
-    if (this._checkSystemCommand('yt-dlp')) {
-      return { available: true, source: 'system' };
-    }
-
-    // Then check downloaded version
-    const cacheDir = this._getCacheDir();
-    const plat = platform();
-    const filename = plat === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
-    const ytDlpPath = join(cacheDir, 'bin', filename);
-    if (existsSync(ytDlpPath)) {
-      return { available: true, source: 'downloaded', path: ytDlpPath };
-    }
-
-    return { available: false };
-  }
 
   /**
    * Perform complete system check
@@ -143,13 +131,13 @@ export class SystemChecker {
       ffmpeg: {
         available: false,
       },
-      ytdlp: {
-        available: false,
-      },
       disk: {
         cacheDir: this._getCacheDir(),
       },
     };
+
+    // Note: yt-dlp is installed via pip (requirements-core.txt), not as a binary
+    // Note: mp4box is no longer used - we use pymp4 library instead
 
     try {
       // Test Python and modules
@@ -183,12 +171,9 @@ export class SystemChecker {
         result.whisper.models = models.filter((m) => this._checkWhisperModel(m));
       }
 
-      // Check for ffmpeg and yt-dlp
+      // Check for ffmpeg
       const ffmpegCheck = this._checkFfmpeg();
       result.ffmpeg = ffmpegCheck;
-
-      const ytdlpCheck = this._checkYtDlp();
-      result.ytdlp = ytdlpCheck;
     } catch (error) {
       console.error('System check error:', error);
       result.error = error.message;

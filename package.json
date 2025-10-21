@@ -84,6 +84,10 @@
       {
         "from": "requirements.txt",
         "to": "requirements.txt"
+      },
+      {
+        "from": "requirements-core.txt",
+        "to": "requirements-core.txt"
       }
     ],
     "win": {

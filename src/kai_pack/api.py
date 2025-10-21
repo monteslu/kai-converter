@@ -77,6 +77,7 @@ class KaiAPI:
         self,
         input_file: str,
         output_file: Optional[str] = None,
+        output_format: str = "kai",  # 'kai' or 'm4a'
         whisper_model: str = "small",
         language: str = "en",
         device: Optional[str] = None,
@@ -163,13 +164,22 @@ class KaiAPI:
 
             # Auto-generate output path if not provided
             if output_file is None:
-                output_path = input_path.with_suffix('.kai')
+                if output_format == 'm4a':
+                    # For M4A format, use .stem.m4a extension
+                    output_path = input_path.with_suffix('.stem.m4a')
+                else:
+                    output_path = input_path.with_suffix('.kai')
             else:
                 output_path = Path(output_file)
 
-            # Ensure .kai extension
-            if output_path.suffix != '.kai':
-                output_path = output_path.with_suffix('.kai')
+            # Ensure correct extension based on format
+            if output_format == 'm4a':
+                if not str(output_path).endswith('.stem.m4a'):
+                    # Replace extension with .stem.m4a
+                    output_path = Path(str(output_path).rsplit('.', 1)[0] + '.stem.m4a')
+            else:
+                if output_path.suffix != '.kai':
+                    output_path = output_path.with_suffix('.kai')
 
             # Parse features list
             features_list = features or []
@@ -206,29 +216,46 @@ class KaiAPI:
                 silence_threshold=silence_threshold,
                 vocal_pitch_type=vocal_pitch_type,
                 verbose=verbose,
-                progress_callback=self.progress_callback
+                progress_callback=self.progress_callback,
+                llm_enabled=llm_enabled,
+                llm_provider=llm_provider,
+                llm_model=llm_model,
+                llm_api_key=llm_api_key,
+                llm_base_url=llm_base_url
             )
 
             self._emit_progress("loading", 5, "Loading audio file...")
 
-            # Process the audio
-            # Note: In Task 1.3, we'll add progress callback support to KaiProcessor
-            # For now, we emit manual progress updates based on typical processing stages
-            result = self._processor.process(
-                input_audio=input_path,
-                output_path=output_path,
-                stem_bitrate=stem_bitrate,
-                vocals_bitrate=vocals_bitrate,
-                features=features_list,
-                metadata_overrides=metadata_overrides,
-                cover_art=cover_path,
-                include_id3_raw=include_id3_raw,
-                create_music_stem=not four_stems
-            )
+            # Route to appropriate processing method based on output format
+            if output_format == 'm4a':
+                # Process to M4A Stems format
+                result = self._processor.process_to_m4a(
+                    input_audio=input_path,
+                    output_path=output_path,
+                    features=features_list,
+                    metadata_overrides=metadata_overrides,
+                    cover_art=cover_path,
+                    stems_profile="STEMS-4" if four_stems else "STEMS-2",
+                    codec="aac",  # Could be made configurable later
+                    bitrate="256k"  # Could be made configurable later
+                )
+            else:
+                # Process to KAI format (default)
+                result = self._processor.process(
+                    input_audio=input_path,
+                    output_path=output_path,
+                    stem_bitrate=stem_bitrate,
+                    vocals_bitrate=vocals_bitrate,
+                    features=features_list,
+                    metadata_overrides=metadata_overrides,
+                    cover_art=cover_path,
+                    include_id3_raw=include_id3_raw,
+                    create_music_stem=not four_stems
+                )
 
-            # Apply LLM lyric correction if enabled
+            # Apply LLM lyric correction if enabled (KAI format only - M4A correction is done before packaging)
             llm_stats = None
-            if llm_enabled and llm_provider:
+            if llm_enabled and llm_provider and output_format == 'kai':
                 self._emit_progress("llm_correction", 95, "Applying AI lyric correction...")
                 logger.info("LLM correction enabled, running fix_lyrics...")
 
@@ -311,17 +338,20 @@ class KaiAPI:
                 "output_file": str(output_path),
                 "processing_time": result.get("processing_time_seconds", 0),
                 "stats": {
-                    "lines": result.get("processing_stats", {}).get("lines_aligned", 0),
-                    "confidence": result.get("processing_stats", {}).get("alignment_confidence", 0.0),
-                    "stems": result.get("processing_stats", {}).get("stems_separated", 0),
-                    "features": result.get("processing_stats", {}).get("features_extracted", 0)
+                    "lines": result.get("processing_stats", {}).get("lines_aligned", 0) or result.get("stats", {}).get("lines", 0),
+                    "confidence": result.get("processing_stats", {}).get("alignment_confidence", 0.0) or result.get("stats", {}).get("confidence", 0.0),
+                    "stems": result.get("processing_stats", {}).get("stems_separated", 0) or result.get("stats", {}).get("stems", 0),
+                    "features": result.get("processing_stats", {}).get("features_extracted", 0) or result.get("stats", {}).get("features", 0)
                 },
                 "input_info": result.get("input_info", {}),
                 "validation": result.get("validation", {})
             }
 
+            # Add LLM stats from either KAI correction (local llm_stats) or M4A correction (result['llm_stats'])
             if llm_stats:
                 response["llm_stats"] = llm_stats
+            elif result.get("llm_stats"):
+                response["llm_stats"] = result["llm_stats"]
 
             return response
 

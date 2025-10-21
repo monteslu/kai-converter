@@ -49,13 +49,20 @@ export default function AboutScreen() {
           <p className="text-gray-500 dark:text-gray-400">Checking system...</p>
         ) : (
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-600 dark:text-gray-400">Python:</span>
-              <span className={systemInfo?.python?.available ? 'text-green-600' : 'text-red-600'}>
-                {systemInfo?.python?.available
-                  ? `✓ ${systemInfo.python.version}`
-                  : '✗ Not found'}
-              </span>
+            <div>
+              <div className="flex justify-between">
+                <span className="text-gray-600 dark:text-gray-400">Python:</span>
+                <span className={systemInfo?.python?.available ? 'text-green-600' : 'text-red-600'}>
+                  {systemInfo?.python?.available
+                    ? `✓ ${systemInfo.python.version}`
+                    : '✗ Not found'}
+                </span>
+              </div>
+              {systemInfo?.python?.path && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                  {systemInfo.python.path}
+                </p>
+              )}
             </div>
             <div className="flex justify-between">
               <span className="text-gray-600 dark:text-gray-400">PyTorch:</span>
@@ -87,6 +94,26 @@ export default function AboutScreen() {
                   : '✗ Not installed'}
               </span>
             </div>
+            <div className="border-t border-gray-200 dark:border-gray-700 my-2"></div>
+            <div className="space-y-3">
+              <div>
+                <div className="flex justify-between">
+                  <span className="text-gray-600 dark:text-gray-400">FFmpeg:</span>
+                  <span className={systemInfo?.ffmpeg?.available ? 'text-green-600' : 'text-red-600'}>
+                    {systemInfo?.ffmpeg?.available
+                      ? `✓ ${systemInfo.ffmpeg.source === 'system' ? 'System' : 'Downloaded'}`
+                      : '✗ Not found'}
+                  </span>
+                </div>
+                {systemInfo?.ffmpeg?.path && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 truncate">
+                    {systemInfo.ffmpeg.path}
+                  </p>
+                )}
+              </div>
+            </div>
+            {/* Note: yt-dlp is installed via pip in core-deps */}
+            {/* Note: mp4box is no longer used - we use pymp4 library instead */}
           </div>
         )}
       </div>

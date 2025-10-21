@@ -305,7 +305,7 @@ async function installPackages(pythonPath, requirementsPath, progressCallback) {
   }
 }
 
-export async function setupPython(pythonDir, requirementsPath, progressCallback) {
+export async function setupPython(pythonDir, requirementsPath, progressCallback, skipPackages = false) {
   try {
     // Clean existing installation
     if (existsSync(pythonDir)) {
@@ -345,14 +345,16 @@ export async function setupPython(pythonDir, requirementsPath, progressCallback)
     const version = execSync(`"${pythonPath}" --version`).toString().trim();
     console.log(`Python installed: ${version}`);
 
-    // Install packages
-    await installPackages(pythonPath, requirementsPath, progressCallback);
+    // Install packages (unless skipPackages is true)
+    if (!skipPackages) {
+      await installPackages(pythonPath, requirementsPath, progressCallback);
+    }
 
     if (progressCallback) {
       progressCallback({
         stage: 'complete',
         percent: 100,
-        message: 'Python setup complete!'
+        message: skipPackages ? 'Python installed!' : 'Python setup complete!'
       });
     }
 

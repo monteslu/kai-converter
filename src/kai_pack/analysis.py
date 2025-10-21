@@ -547,14 +547,13 @@ class MusicalAnalyzer:
     def extract_tempo(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract tempo and beat tracking."""
         logger.debug("Extracting tempo and beats")
-        
+
         if MADMOM_AVAILABLE:
             return self._extract_tempo_madmom(audio)
         else:
-            raise RuntimeError(
-                "madmom is required for tempo detection. "
-                "Install with: pip install madmom"
-            )
+            # Fall back to librosa (already installed)
+            logger.info("Using librosa for tempo detection (madmom not available)")
+            return self._extract_tempo_librosa(audio)
             
     def _extract_tempo_madmom(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract tempo using madmom."""
@@ -579,7 +578,25 @@ class MusicalAnalyzer:
                 "madmom is required for tempo detection. "
                 "Install with: pip install madmom"
             )
-        
+
+    def _extract_tempo_librosa(self, audio: np.ndarray) -> Dict[str, Any]:
+        """Extract tempo using librosa."""
+        try:
+            import librosa
+
+            # Librosa's beat_track function
+            tempo, beats = librosa.beat.beat_track(y=audio, sr=self.sample_rate, units='time')
+
+            return {
+                "bpm": float(tempo),
+                "beats": beats.tolist(),
+                "bars": [],  # Librosa doesn't detect bars
+                "method": "librosa-beat-track"
+            }
+        except Exception as e:
+            logger.error(f"Librosa tempo detection failed: {e}")
+            raise RuntimeError(f"Failed to detect tempo: {e}")
+
     def extract_keys(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract key signature timeline."""
         logger.debug("Extracting key signatures")
