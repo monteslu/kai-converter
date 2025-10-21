@@ -467,7 +467,7 @@ class StemsM4aPackager:
     ) -> None:
         """Write all custom atoms and metadata to MP4 file."""
         try:
-            from mutagen.mp4 import MP4, MP4Cover
+            from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
         except ImportError:
             raise ImportError("mutagen library required for MP4 metadata writing")
 
@@ -547,6 +547,18 @@ class StemsM4aPackager:
                 genre = song_metadata['genre']
                 if isinstance(genre, str):
                     mp4['\xa9gen'] = [genre]
+
+            # Musical key (from analysis features if available)
+            if analysis_features and 'key_detection' in analysis_features:
+                key_info = analysis_features['key_detection']
+                detected_key = key_info.get('key', '').strip()
+                confidence = key_info.get('confidence', 0.0)
+
+                # Only write key if confidence is reasonable (>0.3)
+                if detected_key and detected_key != 'unknown' and confidence > 0.3:
+                    # Write to freeform ----:com.apple.iTunes:initialkey (standard for DJ software)
+                    mp4['----:com.apple.iTunes:initialkey'] = [MP4FreeForm(detected_key.encode('utf-8'), dataformat=1)]
+                    logger.info(f"✓ Musical key added: {detected_key} (confidence: {confidence:.2f})")
 
             # Track number
             if 'track' in song_metadata:
