@@ -109,7 +109,11 @@
       "artifactName": "${productName}-${version}-windows-${arch}.${ext}"
     },
     "nsis": {
-      "differentialPackage": false
+      "differentialPackage": false,
+      "artifactName": "${productName}-${version}-windows-${arch}-installer.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-windows-${arch}-portable.${ext}"
     },
     "mac": {
       "target": [
