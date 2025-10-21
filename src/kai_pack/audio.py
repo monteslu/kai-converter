@@ -43,15 +43,20 @@ class AudioProcessor:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp_file:
                 tmp_wav = Path(tmp_file.name)
 
-            # First, get original sample rate using ffprobe
+            # First, get original sample rate, channels, and bitrate using ffprobe
             cmd_probe = [
                 "ffprobe", "-v", "quiet", "-show_entries",
-                "stream=sample_rate,channels", "-of", "csv=p=0", str(input_path)
+                "stream=sample_rate,channels,bit_rate", "-of", "csv=p=0", str(input_path)
             ]
             result = subprocess.run(cmd_probe, capture_output=True, text=True, check=True)
             probe_output = result.stdout.strip().split(',')
             orig_sr = int(probe_output[0])
             orig_channels = int(probe_output[1])
+            # Bitrate might be 'N/A' for lossless formats
+            try:
+                orig_bitrate = int(probe_output[2]) if len(probe_output) > 2 and probe_output[2] != 'N/A' else None
+            except (ValueError, IndexError):
+                orig_bitrate = None
 
             # Convert to WAV at target sample rate with stereo output
             cmd = [
@@ -86,6 +91,7 @@ class AudioProcessor:
             "original_sample_rate": orig_sr,
             "target_sample_rate": self.sample_rate,
             "original_channels": orig_channels,
+            "original_bitrate": orig_bitrate,
             "duration_seconds": audio_normalized.shape[1] / self.sample_rate,
             "loudness_stats": loudness_stats
         }

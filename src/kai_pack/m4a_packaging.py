@@ -23,6 +23,33 @@ class StemsM4aPackager:
         self.webvtt_generator = WebVTTGenerator()
         self.mp4_atoms = MP4CustomAtoms()
 
+    def _calculate_aac_bitrate(self, source_bitrate: Optional[int], max_bitrate: int = 256000) -> str:
+        """
+        Calculate appropriate AAC bitrate based on source quality.
+
+        Args:
+            source_bitrate: Original source bitrate in bits/sec (None for lossless)
+            max_bitrate: Maximum bitrate ceiling in bits/sec
+
+        Returns:
+            Bitrate string for ffmpeg (e.g., "192k")
+        """
+        # Default to max bitrate for lossless sources or unknown
+        if source_bitrate is None:
+            target_bitrate = max_bitrate
+        else:
+            # Use source bitrate but don't exceed max
+            # AAC is ~30% more efficient than MP3, so we can use slightly lower
+            # but let's be conservative and match the source
+            target_bitrate = min(source_bitrate, max_bitrate)
+
+        # Round to common bitrate values
+        common_bitrates = [96000, 128000, 160000, 192000, 224000, 256000, 320000]
+        target_bitrate = min(common_bitrates, key=lambda x: abs(x - target_bitrate))
+
+        # Convert to ffmpeg format (e.g., "192k")
+        return f"{target_bitrate // 1000}k"
+
     def _find_mp4box(self) -> Optional[str]:
         """
         Find mp4box binary in system PATH or cache directory.
@@ -68,7 +95,7 @@ class StemsM4aPackager:
         sample_rate: int = 44100,
         profile: str = "STEMS-4",  # or "STEMS-2"
         codec: str = "aac",  # or "alac"
-        bitrate: str = "256k",
+        bitrate: Optional[str] = None,  # If None, auto-detect from source
         use_mp4box: bool = True,  # Required for Traktor compatibility
         cover_art: Optional[Path] = None
     ) -> Dict[str, Any]:
@@ -85,7 +112,8 @@ class StemsM4aPackager:
             sample_rate: Audio sample rate
             profile: STEMS-4 or STEMS-2
             codec: aac or alac
-            bitrate: AAC bitrate (ignored for ALAC)
+            bitrate: AAC bitrate (e.g., "256k"). If None, auto-detects from source quality.
+                    Ignored for ALAC.
             use_mp4box: Use MP4Box for muxing (required for Traktor)
             cover_art: Optional cover art image path
 
@@ -94,6 +122,17 @@ class StemsM4aPackager:
         """
         logger.info(f"Packaging stems M4A: {output_path}")
         logger.info(f"Profile: {profile}, Codec: {codec}, MP4Box: {use_mp4box}")
+
+        # Auto-detect bitrate from source if not provided
+        if bitrate is None and codec == "aac":
+            source_bitrate = metadata.get('original_bitrate')
+            bitrate = self._calculate_aac_bitrate(source_bitrate)
+            if source_bitrate:
+                logger.info(f"Auto-detected AAC bitrate: {bitrate} (source: {source_bitrate//1000}k)")
+            else:
+                logger.info(f"Using default AAC bitrate: {bitrate} (lossless source)")
+        elif bitrate is None:
+            bitrate = "256k"  # Default fallback
 
         start_time = datetime.utcnow()
 

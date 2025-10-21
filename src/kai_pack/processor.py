@@ -207,6 +207,8 @@ class KaiProcessor:
                     "sample_rate": audio_info["target_sample_rate"],
                     "channels": 2
                 })
+                # Preserve original bitrate for smart AAC encoding
+                metadata["original_bitrate"] = audio_info.get("original_bitrate")
                 
                 # Step 3: Stem separation
                 device_info = f" on {self.stem_separator.device.upper()}"
@@ -598,6 +600,8 @@ class KaiProcessor:
                     "sample_rate": audio_info["target_sample_rate"],
                     "channels": 2
                 })
+                # Preserve original bitrate for smart AAC encoding
+                metadata["original_bitrate"] = audio_info.get("original_bitrate")
                 logger.info(f"✓ Metadata: {metadata['song'].get('title', 'Unknown')} - {metadata['song'].get('artist', 'Unknown')}")
 
                 # Step 3: Stem separation
