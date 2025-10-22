@@ -752,6 +752,150 @@ class LyricsTranscriber:
         # Process into KAI format
         return self._process_whisper_result(merged_result)
         
+    def _split_segment_by_punctuation(self, segment: Dict[str, Any], segment_index: int = 0) -> List[Dict[str, Any]]:
+        """Split a long segment into multiple lines using punctuation and word-level timing.
+
+        Args:
+            segment: Whisper segment with text, start, end, and words
+            segment_index: Index of this segment (for logging)
+
+        Returns:
+            List of split segments (or original segment if no splitting needed)
+        """
+        segment_text = segment.get("text", "").strip()
+        segment_words = segment.get("words", [])
+        start_time = segment.get("start", 0.0)
+        end_time = segment.get("end", start_time + 3.0)
+        duration = end_time - start_time
+        word_count = len(segment_text.split())
+
+        # Only split if segment is long (> 8 seconds OR > 20 words)
+        if duration <= 8.0 and word_count <= 20:
+            logger.debug(f"Segment {segment_index}: No split needed ({duration:.1f}s, {word_count} words)")
+            return [segment]  # No splitting needed
+
+        logger.info(f"📏 Segment {segment_index} is long ({duration:.1f}s, {word_count} words): '{segment_text[:60]}...'")
+
+        # Need word-level timing to split accurately
+        if not segment_words:
+            logger.warning(f"⚠️  Segment {segment_index}: Cannot split without word timing")
+            return [segment]
+
+        # Validate that word-level timing matches the segment text
+        # Extract word text from timing data and compare with segment text words
+        import re
+
+        # Get words from timing data, stripping whitespace
+        timing_words = [w.get("word", "").strip() for w in segment_words]
+        # Filter out any empty strings that might result from whitespace-only entries
+        timing_words = [w for w in timing_words if w]
+
+        # Get words from segment text
+        text_words = segment_text.split()
+
+        # Check if word counts match
+        if len(timing_words) != len(text_words):
+            logger.warning(f"⚠️  Segment {segment_index}: Word count mismatch - timing has {len(timing_words)} words, text has {len(text_words)} words")
+            logger.warning(f"   Cannot safely split without accurate word-level timing")
+            return [segment]
+
+        # Check if words actually match (case-insensitive, ignoring punctuation and extra spaces)
+        mismatches = 0
+        for i, (timing_word, text_word) in enumerate(zip(timing_words, text_words)):
+            # Normalize both words: strip punctuation, extra spaces, and convert to lowercase
+            # Keep only alphanumeric characters and internal spaces
+            timing_clean = re.sub(r'[^\w]', '', timing_word.lower()).strip()
+            text_clean = re.sub(r'[^\w]', '', text_word.lower()).strip()
+
+            if timing_clean != text_clean:
+                mismatches += 1
+                if mismatches <= 3:  # Only log first few mismatches
+                    logger.debug(f"   Word {i}: timing='{timing_word}' vs text='{text_word}'")
+
+        # Allow up to 10% mismatch for minor differences
+        mismatch_ratio = mismatches / len(text_words) if text_words else 0
+        if mismatch_ratio > 0.1:
+            logger.warning(f"⚠️  Segment {segment_index}: Too many word mismatches ({mismatches}/{len(text_words)} = {mismatch_ratio:.1%})")
+            logger.warning(f"   Cannot safely split without accurate word-level timing")
+            return [segment]
+
+        if mismatches > 0:
+            logger.debug(f"Segment {segment_index}: Minor word differences ({mismatches}/{len(text_words)}), proceeding with split")
+        else:
+            logger.debug(f"Segment {segment_index}: Word-level timing validated - perfect match")
+
+        # Find punctuation split points
+        # Track which word index has punctuation
+        split_indices = []
+
+        for word_idx, word_data in enumerate(segment_words):
+            word_text = word_data.get("word", "").strip()
+
+            # Check if word ends with sentence-ending punctuation
+            if re.search(r'[.!?]$', word_text):
+                split_indices.append(word_idx)
+            # Also split on commas if the segment is really long (> 15 seconds)
+            elif duration > 15.0 and re.search(r'[,;]$', word_text):
+                split_indices.append(word_idx)
+
+        if not split_indices:
+            logger.warning(f"⚠️  Segment {segment_index}: No punctuation found to split long segment ({duration:.1f}s)")
+            return [segment]
+
+        logger.info(f"✂️  Found {len(split_indices)} punctuation split points")
+
+        # Create split segments
+        split_segments = []
+        prev_idx = 0
+
+        for split_idx in split_indices:
+            # Extract words for this line (prev_idx to split_idx inclusive)
+            line_words = segment_words[prev_idx:split_idx + 1]
+
+            if not line_words:
+                continue
+
+            # Get timing from first and last word
+            line_start = line_words[0].get("start", start_time)
+            line_end = line_words[-1].get("end", line_start + 1.0)
+
+            # Build text from words
+            line_text = " ".join(w.get("word", "").strip() for w in line_words).strip()
+
+            if line_text:
+                split_segments.append({
+                    "text": line_text,
+                    "start": line_start,
+                    "end": line_end,
+                    "words": line_words
+                })
+
+            prev_idx = split_idx + 1
+
+        # Don't forget remaining words after last punctuation
+        if prev_idx < len(segment_words):
+            remaining_words = segment_words[prev_idx:]
+            line_start = remaining_words[0].get("start", start_time)
+            line_end = remaining_words[-1].get("end", end_time)
+            line_text = " ".join(w.get("word", "").strip() for w in remaining_words).strip()
+
+            if line_text:
+                split_segments.append({
+                    "text": line_text,
+                    "start": line_start,
+                    "end": line_end,
+                    "words": remaining_words
+                })
+
+        if split_segments:
+            logger.info(f"✅ Segment {segment_index}: Split into {len(split_segments)} lines:")
+            for idx, seg in enumerate(split_segments):
+                seg_duration = seg['end'] - seg['start']
+                logger.info(f"   Line {idx + 1}: {seg_duration:.1f}s | {seg['start']:.1f}-{seg['end']:.1f}s | '{seg['text'][:50]}...'")
+            return split_segments
+        else:
+            return [segment]
+
     def _process_whisper_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Process Whisper transcription result into KAI format."""
         logger.debug("Processing Whisper transcription result")
@@ -774,67 +918,76 @@ class LyricsTranscriber:
             
         # Convert segments to lines
         lines = []
-        
+
         for i, segment in enumerate(segments):
-            segment_text = segment.get("text", "").strip()
-            start_time = segment.get("start", 0.0)
-            end_time = segment.get("end", start_time + 3.0)
-            
-            # Process words in this segment
-            segment_words = segment.get("words", [])
-            word_timing_pairs = []
-
-            if segment_words:
-                # We have word-level timestamps from Whisper
-                for j, word_data in enumerate(segment_words):
-                    word_text = word_data.get("word", "").strip()
-                    word_start = word_data.get("start", start_time)
-                    word_end = word_data.get("end", word_start + 0.5)
-
-                    if word_text:  # Skip empty words
-                        # Calculate relative timing (relative to line start)
-                        word_start_rel = word_start - start_time
-                        word_end_rel = word_end - start_time
-                        word_timing_pairs.append([
-                            round(float(word_start_rel), 3),
-                            round(float(word_end_rel), 3)
-                        ])
+            # Whisper large-v3-turbo tends to create very long first segments
+            # (possibly due to initial analytics/warm-up), so split the first segment only
+            if i == 0:
+                split_segments = self._split_segment_by_punctuation(segment, segment_index=i)
             else:
-                # No word-level timestamps, split text and estimate
-                words = segment_text.split()
-                if words:
-                    word_duration = (end_time - start_time) / len(words)
+                split_segments = [segment]
 
-                    for j, word_text in enumerate(words):
-                        word_start_rel = j * word_duration
-                        word_end_rel = (j + 1) * word_duration
-                        word_timing_pairs.append([
-                            round(word_start_rel, 3),
-                            round(word_end_rel, 3)
-                        ])
-            
-            # Create line object
-            if segment_text:  # Skip empty segments
-                line_obj = {
-                    "singer_id": "A",
-                    "start": round(float(start_time), 3),
-                    "end": round(float(end_time), 3),
-                    "text": segment_text
-                }
+            # Process each segment (original or split)
+            for sub_segment in split_segments:
+                segment_text = sub_segment.get("text", "").strip()
+                start_time = sub_segment.get("start", 0.0)
+                end_time = sub_segment.get("end", start_time + 3.0)
 
-                # Only add word_timing if we have timing data
-                if word_timing_pairs:
-                    line_obj["word_timing"] = word_timing_pairs
-                
-                # Filter out unrealistically short segments (likely artifacts)
-                duration = end_time - start_time
-                word_count = len(segment_text.split())
-                min_duration = 0.3 + (word_count * 0.15)  # 0.3s base + 0.15s per word
-                
-                if duration >= min_duration:
-                    lines.append(line_obj)
+                # Process words in this segment
+                segment_words = sub_segment.get("words", [])
+                word_timing_pairs = []
+
+                if segment_words:
+                    # We have word-level timestamps from Whisper
+                    for j, word_data in enumerate(segment_words):
+                        word_text = word_data.get("word", "").strip()
+                        word_start = word_data.get("start", start_time)
+                        word_end = word_data.get("end", word_start + 0.5)
+
+                        if word_text:  # Skip empty words
+                            # Calculate relative timing (relative to line start)
+                            word_start_rel = word_start - start_time
+                            word_end_rel = word_end - start_time
+                            word_timing_pairs.append([
+                                round(float(word_start_rel), 3),
+                                round(float(word_end_rel), 3)
+                            ])
                 else:
-                    logger.info(f"Filtering out short segment ({duration:.2f}s < {min_duration:.2f}s): '{segment_text}'")
+                    # No word-level timestamps, split text and estimate
+                    words = segment_text.split()
+                    if words:
+                        word_duration = (end_time - start_time) / len(words)
+
+                        for j, word_text in enumerate(words):
+                            word_start_rel = j * word_duration
+                            word_end_rel = (j + 1) * word_duration
+                            word_timing_pairs.append([
+                                round(word_start_rel, 3),
+                                round(word_end_rel, 3)
+                            ])
+
+                # Create line object
+                if segment_text:  # Skip empty segments
+                    line_obj = {
+                        "singer_id": "A",
+                        "start": round(float(start_time), 3),
+                        "end": round(float(end_time), 3),
+                        "text": segment_text
+                    }
+
+                    # Only add word_timing if we have timing data
+                    if word_timing_pairs:
+                        line_obj["word_timing"] = word_timing_pairs
+
+                    # Filter out unrealistically short segments (likely artifacts)
+                    duration = end_time - start_time
+                    word_count = len(segment_text.split())
+                    min_duration = 0.3 + (word_count * 0.15)  # 0.3s base + 0.15s per word
+
+                    if duration >= min_duration:
+                        lines.append(line_obj)
+                    else:
+                        logger.info(f"Filtering out short segment ({duration:.2f}s < {min_duration:.2f}s): '{segment_text}'")
         
         # Calculate overall confidence based on segments
         avg_confidence = 0.7  # Default confidence for Whisper transcription

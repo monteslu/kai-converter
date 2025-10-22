@@ -229,15 +229,17 @@ class KaiAPI:
             # Route to appropriate processing method based on output format
             if output_format == 'm4a':
                 # Process to M4A Stems format
+                # Use return_intermediate=True to let JavaScript do the M4A packaging
                 result = self._processor.process_to_m4a(
                     input_audio=input_path,
-                    output_path=output_path,
+                    output_path=output_path,  # This becomes the output directory for intermediate files
                     features=features_list,
                     metadata_overrides=metadata_overrides,
                     cover_art=cover_path,
                     stems_profile="STEMS-4" if four_stems else "STEMS-2",
                     codec="aac",  # Could be made configurable later
-                    bitrate="256k"  # Could be made configurable later
+                    bitrate="256k",  # Could be made configurable later
+                    return_intermediate=True  # Return WAV stems + JSON for JavaScript packaging
                 )
             else:
                 # Process to KAI format (default)
@@ -344,6 +346,7 @@ class KaiAPI:
                     "features": result.get("processing_stats", {}).get("features_extracted", 0) or result.get("stats", {}).get("features", 0)
                 },
                 "input_info": result.get("input_info", {}),
+                "output_info": result.get("output_info", {}),
                 "validation": result.get("validation", {})
             }
 

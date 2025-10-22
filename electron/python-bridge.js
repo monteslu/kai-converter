@@ -2,8 +2,10 @@ import { spawn } from 'child_process';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import { homedir, platform } from 'os';
 import { app } from 'electron';
+import { packageStemsM4A } from './m4a-packager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -204,7 +206,7 @@ args = json.loads(sys.argv[1])
 
 # Handle YouTube download if youtubeUrl is provided
 input_file = args['inputFile']
-temp_mp3 = None
+temp_audio = None
 
 if args['youtubeUrl']:
     import shutil
@@ -220,34 +222,34 @@ if args['youtubeUrl']:
         print(f"RESULT:{json.dumps(result)}", flush=True)
         sys.exit(1)
 
-    # Create temp file for downloaded MP3
+    # Create temp file for downloaded M4A
     temp_dir = tempfile.mkdtemp(prefix='kai_youtube_')
-    temp_mp3 = os.path.join(temp_dir, f"{args['artist']} - {args['title']}.mp3")
+    temp_audio = os.path.join(temp_dir, f"{args['artist']} - {args['title']}.m4a")
 
     try:
-        # Download and extract audio
+        # Download and extract audio (keep native AAC in M4A container)
         progress_callback('youtube_download', 10, 'Downloading from YouTube...')
         subprocess.run([
             ytdlp_path,
             '--extract-audio',
-            '--audio-format', 'mp3',
+            '--audio-format', 'm4a',
             '--audio-quality', '0',
-            '--output', temp_mp3,
+            '--output', temp_audio,
             '--no-playlist',
             args['youtubeUrl']
         ], check=True, capture_output=True)
 
-        # Write ID3 tags
+        # Write MP4 metadata tags
         try:
-            from mutagen.id3 import ID3, TIT2, TPE1
-            tags = ID3()
-            tags.add(TIT2(encoding=3, text=args['title']))
-            tags.add(TPE1(encoding=3, text=args['artist']))
-            tags.save(temp_mp3)
+            from mutagen.mp4 import MP4
+            audio = MP4(temp_audio)
+            audio['\\xa9nam'] = args['title']  # Title
+            audio['\\xa9ART'] = args['artist']  # Artist
+            audio.save()
         except:
             pass  # Continue without tags if mutagen unavailable
 
-        input_file = temp_mp3
+        input_file = temp_audio
         progress_callback('youtube_download', 100, 'YouTube download complete')
 
     except subprocess.CalledProcessError as e:
@@ -278,6 +280,8 @@ try:
         four_stems=args['fourStems'],
         features=args['features'],
         reference_lyrics=args['referenceLyrics'],
+        title=args.get('title'),
+        artist=args.get('artist'),
         llm_enabled=args['llmEnabled'],
         llm_provider=args['llmProvider'],
         llm_model=args['llmModel'],
@@ -288,10 +292,10 @@ try:
     print(f"RESULT:{json.dumps(result)}", flush=True)
 finally:
     # Clean up temp file
-    if temp_mp3 and os.path.exists(temp_mp3):
+    if temp_audio and os.path.exists(temp_audio):
         try:
-            os.unlink(temp_mp3)
-            os.rmdir(os.path.dirname(temp_mp3))
+            os.unlink(temp_audio)
+            os.rmdir(os.path.dirname(temp_audio))
         except:
             pass
 `,
@@ -333,7 +337,24 @@ finally:
           } else if (line.startsWith('RESULT:')) {
             try {
               const result = JSON.parse(line.substring(7));
-              resolve(result);
+
+              // DEBUG: Log the result structure to see what Python is actually returning
+              console.log('[PythonBridge] DEBUG: Received result from Python');
+              console.log('[PythonBridge] DEBUG: result.success =', result.success);
+              console.log('[PythonBridge] DEBUG: result.output_info =', JSON.stringify(result.output_info, null, 2));
+
+              // Check if Python returned intermediate files for M4A packaging
+              if (result.success && result.output_info && result.output_info.intermediate_data_json) {
+                console.log('[PythonBridge] Detected M4A intermediate files, calling JavaScript packager...');
+
+                // Call JavaScript M4A packager asynchronously
+                this._packageM4AFromIntermediate(result, options, progressCallback)
+                  .then(finalResult => resolve(finalResult))
+                  .catch(error => reject(error));
+              } else {
+                // Normal result (KAI format or error)
+                resolve(result);
+              }
             } catch (e) {
               console.error('Failed to parse result:', e);
             }
@@ -1330,6 +1351,100 @@ except Exception as e:
         });
       });
     });
+  }
+
+  /**
+   * Package M4A file from intermediate files using JavaScript
+   * @private
+   */
+  async _packageM4AFromIntermediate(pythonResult, options, progressCallback) {
+    try {
+      const intermediateDataPath = pythonResult.output_info.intermediate_data_json;
+
+      console.log(`[PythonBridge] Reading intermediate data from: ${intermediateDataPath}`);
+
+      // Read the intermediate JSON data
+      const jsonData = await readFile(intermediateDataPath, 'utf-8');
+      const intermediateData = JSON.parse(jsonData);
+
+      // Emit progress for JavaScript packaging
+      if (progressCallback) {
+        progressCallback({
+          stage: 'm4a_packaging',
+          percent: 95,
+          message: 'Packaging M4A file with JavaScript...'
+        });
+      }
+
+      // Determine final output path
+      // The intermediate directory has .tmp suffix, remove it to get the final file path
+      const intermediateDirPath = pythonResult.output_info.output_dir;
+      const finalOutputPath = options.outputFile || intermediateDirPath.replace(/\.tmp$/, '');
+
+      console.log(`[PythonBridge] Calling JavaScript M4A packager...`);
+      console.log(`[PythonBridge] Intermediate dir: ${intermediateDirPath}`);
+      console.log(`[PythonBridge] Final output: ${finalOutputPath}`);
+
+      // Call the JavaScript M4A packager
+      const packagingResult = await packageStemsM4A({
+        outputPath: finalOutputPath,
+        stemsWavFiles: intermediateData.stems_wav_files,
+        mixdownWav: intermediateData.mixdown_wav,
+        lyricsData: intermediateData.lyrics_data,
+        metadata: intermediateData.metadata,
+        analysisFeatures: intermediateData.analysis_features,
+        profile: intermediateData.profile,
+        codec: intermediateData.codec,
+        bitrate: intermediateData.bitrate,
+        sampleRate: intermediateData.sample_rate,
+        coverArt: intermediateData.cover_art
+      });
+
+      console.log(`[PythonBridge] ✓ JavaScript M4A packaging complete: ${packagingResult.file_size_bytes} bytes`);
+
+      // Clean up intermediate .tmp directory
+      try {
+        const { rm } = await import('fs/promises');
+        await rm(intermediateDirPath, { recursive: true, force: true });
+        console.log(`[PythonBridge] ✓ Cleaned up intermediate directory: ${intermediateDirPath}`);
+      } catch (cleanupError) {
+        console.warn(`[PythonBridge] Could not delete intermediate directory: ${cleanupError.message}`);
+      }
+
+      // Emit completion
+      if (progressCallback) {
+        progressCallback({
+          stage: 'complete',
+          percent: 100,
+          message: 'M4A packaging complete!'
+        });
+      }
+
+      // Return final result in same format as Python would
+      return {
+        success: true,
+        output_file: packagingResult.output_file,
+        processing_time: pythonResult.processing_time + (packagingResult.processing_time_seconds || 0),
+        stats: pythonResult.stats,
+        input_info: pythonResult.input_info,
+        output_info: {
+          file_size_bytes: packagingResult.file_size_bytes,
+          file_sha256: packagingResult.file_sha256,
+          profile: packagingResult.profile,
+          codec: packagingResult.codec,
+          encoder_delay_samples: packagingResult.encoder_delay_samples
+        },
+        llm_stats: pythonResult.llm_stats
+      };
+
+    } catch (error) {
+      console.error('[PythonBridge] M4A packaging error:', error);
+      return {
+        success: false,
+        error: `M4A packaging failed: ${error.message}`,
+        error_type: 'M4APackagingError'
+      };
+    }
   }
 
   /**

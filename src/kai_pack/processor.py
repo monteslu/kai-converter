@@ -554,20 +554,22 @@ class KaiProcessor:
         cover_art: Optional[Path] = None,
         stems_profile: str = "STEMS-4",  # or "STEMS-2"
         codec: str = "aac",  # or "alac"
-        bitrate: str = "256k"
+        bitrate: str = "256k",
+        return_intermediate: bool = False  # Return WAV stems + JSON instead of packaging M4A
     ) -> Dict[str, Any]:
         """
         Process audio into M4A Stems format with karaoke extensions.
 
         Args:
             input_audio: Path to input audio file
-            output_path: Output .stem.m4a file path
+            output_path: Output .stem.m4a file path (or output directory if return_intermediate=True)
             features: List of features to extract (e.g., ['f0', 'tempo'])
             metadata_overrides: Optional metadata overrides
             cover_art: Optional cover art file
             stems_profile: STEMS-4 or STEMS-2
             codec: aac or alac
             bitrate: AAC bitrate (ignored for ALAC)
+            return_intermediate: If True, save WAV stems + JSON and return paths instead of packaging M4A
 
         Returns:
             Dict with processing results and statistics
@@ -781,26 +783,96 @@ class KaiProcessor:
                     logger.info("No features requested")
 
                 # Step 6-9: M4A packaging (different from KAI)
-                self._emit_progress(6, 9, "Packaging M4A Stems file...")
-                logger.info(f"Packaging M4A Stems file (profile: {stems_profile}, codec: {codec})...")
+                if return_intermediate:
+                    # JavaScript will do the M4A packaging - just return intermediate files
+                    self._emit_progress(6, 9, "Saving intermediate files for JavaScript packaging...")
+                    logger.info("Saving WAV stems + JSON for JavaScript M4A packaging...")
 
-                # Call M4A packager
-                packaging_result = self.m4a_packager.package_stems_m4a(
-                    output_path=output_path,
-                    stems_wav_files=stem_wav_files,
-                    mixdown_wav=mixdown_wav,
-                    lyrics_data=alignment_data,
-                    metadata=metadata,
-                    analysis_features=analysis_features,
-                    sample_rate=self.sample_rate,
-                    profile=stems_profile,
-                    codec=codec,
-                    bitrate=bitrate,
-                    use_mp4box=True,
-                    cover_art=cover_art
-                )
+                    # Create a temp directory for intermediate files (not the final output path!)
+                    # Add .tmp suffix to avoid conflict with final M4A file
+                    output_dir = Path(str(output_path) + '.tmp')
+                    output_dir.mkdir(parents=True, exist_ok=True)
 
-                self._emit_progress(9, 9, "M4A packaging complete!", 1.0)
+                    # Save WAV stems to output directory (persistent, not temp)
+                    persistent_stems = {}
+                    for stem_name, wav_path in stem_wav_files.items():
+                        output_wav = output_dir / f"{stem_name}.wav"
+                        import shutil
+                        shutil.copy2(str(wav_path), str(output_wav))
+                        persistent_stems[stem_name] = str(output_wav)
+
+                    # Save mixdown WAV
+                    persistent_mixdown = output_dir / "mixdown.wav"
+                    import shutil
+                    shutil.copy2(str(mixdown_wav), str(persistent_mixdown))
+
+                    # Save metadata + lyrics as JSON
+                    # Convert metadata to JSON-safe format (handle ID3TimeStamp and other non-serializable objects)
+                    import json
+
+                    def make_json_safe(obj):
+                        """Recursively convert objects to JSON-safe types."""
+                        if isinstance(obj, dict):
+                            return {k: make_json_safe(v) for k, v in obj.items()}
+                        elif isinstance(obj, (list, tuple)):
+                            return [make_json_safe(item) for item in obj]
+                        elif isinstance(obj, (str, int, float, bool, type(None))):
+                            return obj
+                        elif hasattr(obj, '__dict__'):
+                            # For custom objects (like ID3TimeStamp), convert to string
+                            return str(obj)
+                        else:
+                            return str(obj)
+
+                    intermediate_data = {
+                        "stems_wav_files": persistent_stems,
+                        "mixdown_wav": str(persistent_mixdown),
+                        "lyrics_data": alignment_data,
+                        "metadata": make_json_safe(metadata),
+                        "analysis_features": analysis_features,
+                        "sample_rate": self.sample_rate,
+                        "profile": stems_profile,
+                        "codec": codec,
+                        "bitrate": bitrate,
+                        "cover_art": str(cover_art) if cover_art else None
+                    }
+
+                    json_path = output_dir / "intermediate_data.json"
+                    with open(json_path, 'w', encoding='utf-8') as f:
+                        json.dump(intermediate_data, f, indent=2, ensure_ascii=False)
+
+                    packaging_result = {
+                        "output_dir": str(output_dir),
+                        "intermediate_data_json": str(json_path),
+                        "stems_wav_files": persistent_stems,
+                        "mixdown_wav": str(persistent_mixdown)
+                    }
+
+                    logger.info(f"✓ Intermediate files saved to {output_dir}")
+                    self._emit_progress(9, 9, "Intermediate files ready for JavaScript packaging!", 1.0)
+
+                else:
+                    # Original Python M4A packaging
+                    self._emit_progress(6, 9, "Packaging M4A Stems file...")
+                    logger.info(f"Packaging M4A Stems file (profile: {stems_profile}, codec: {codec})...")
+
+                    # Call M4A packager
+                    packaging_result = self.m4a_packager.package_stems_m4a(
+                        output_path=output_path,
+                        stems_wav_files=stem_wav_files,
+                        mixdown_wav=mixdown_wav,
+                        lyrics_data=alignment_data,
+                        metadata=metadata,
+                        analysis_features=analysis_features,
+                        sample_rate=self.sample_rate,
+                        profile=stems_profile,
+                        codec=codec,
+                        bitrate=bitrate,
+                        use_mp4box=True,
+                        cover_art=cover_art
+                    )
+
+                    self._emit_progress(9, 9, "M4A packaging complete!", 1.0)
 
                 end_time = datetime.utcnow()
                 processing_time = (end_time - start_time).total_seconds()

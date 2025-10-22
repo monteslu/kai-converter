@@ -15,7 +15,7 @@ class MP4CustomAtoms:
     """Write custom MP4 atoms for karaoke data."""
 
     # Custom atom names (4 characters)
-    KAID_ATOM = '----:com.stems:kaid'  # Karaoke Data (JSON)
+    KARA_ATOM = '----:com.stems:kara'  # Karaoke Data (JSON)
     VPCH_ATOM = '----:com.stems:vpch'  # Vocal Pitch (binary float32 array)
     KONS_ATOM = '----:com.stems:kons'  # Karaoke Onsets (binary float64 array)
 

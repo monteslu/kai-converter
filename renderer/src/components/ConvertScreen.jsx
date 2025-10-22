@@ -83,6 +83,23 @@ export default function ConvertScreen() {
     }
   }, [outputFormat]);
 
+  // Clear fields when YouTube URL changes (after a song is done)
+  useEffect(() => {
+    // Only clear if we have a result (song was completed) and URL is being changed
+    if (result && youtubeUrl && inputMode === 'youtube') {
+      setYoutubeTitle('');
+      setYoutubeArtist('');
+      setOutputFile(null);
+      setResult(null);
+      setError(null);
+      setLyricsStatus(null);
+      setReferenceLyrics(null);
+      setManualLyrics('');
+      setShowLyricsInput(false);
+      setShowLyricsDisplay(false);
+    }
+  }, [youtubeUrl]);
+
   async function loadSettings() {
     try {
       if (window.electronAPI) {
@@ -554,8 +571,8 @@ export default function ConvertScreen() {
         />
       </div>
 
-      {/* Lyrics Status */}
-      {((inputMode === 'file' && inputFile) || (inputMode === 'youtube' && youtubeTitle && youtubeArtist)) && lyricsStatus && (
+      {/* Lyrics Status for File Mode */}
+      {inputMode === 'file' && inputFile && lyricsStatus && (
         <div className="card p-4 mb-6">
           {lyricsStatus === 'loading' && (
             <p className="text-sm text-gray-600 dark:text-gray-400">
