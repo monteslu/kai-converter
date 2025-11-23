@@ -5,7 +5,7 @@
 # Note: Demucs and Whisper are installed separately via downloadDemucs() and downloadWhisper()
 
 # Audio processing
-yt-dlp>=2024.10.0  # YouTube downloader
+yt-dlp>=2025.11.0  # YouTube downloader (updated regularly to fix YouTube changes)
 numpy>=1.21.0,<2.0  # Must be <2.0 for scipy compatibility
 scipy>=1.7.0
 soundfile>=0.12.0
